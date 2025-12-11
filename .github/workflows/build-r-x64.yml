@@ -22,7 +22,10 @@ jobs:
           Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
 
       - name: Install R packages
-        run: Rscript -e "install.packages(c('ggplot2'), repos='https://cloud.r-project.org')"
+        run: Rscript -e "install.packages(c('rmarkdown', 'ggplot2'), repos='https://cloud.r-project.org')"
+
+      - name: Verify Quarto setup
+        run: quarto check --log-level=debug
 
       - name: Render website with r-x64 profile
         run: quarto render --profile r-x64
