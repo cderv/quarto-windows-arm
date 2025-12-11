@@ -34,6 +34,8 @@ jobs:
         run: quarto check --log-level=debug
 
       - name: Render website with r-x64 profile
+        env:
+          QUARTO_LOG_LEVEL: debug
         run: quarto render --profile r-x64
 
       - name: Upload site artifact
