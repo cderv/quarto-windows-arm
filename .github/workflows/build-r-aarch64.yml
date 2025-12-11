@@ -1,0 +1,50 @@
+name: Build Website (R aarch64)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Install R aarch64 and RTools45
+        run: |
+          $url = "https://www.r-project.org/nosvn/winutf8/aarch64/R-4-signed/R-4.5.0-aarch64.exe"
+          Invoke-WebRequest -Uri "$url" -OutFile R-4.5.0-aarch64.exe -UseBasicParsing -UserAgent "NativeHost"
+          Start-Process -FilePath R-4.5.0-aarch64.exe -ArgumentList "/install /norestart /verysilent /SUPPRESSMSGBOXES" -NoNewWindow -Wait
+          $url = "https://cran.r-project.org/bin/windows/Rtools/rtools45/files/rtools45-aarch64-6536-6492.exe"
+          Invoke-WebRequest -Uri "$url" -OutFile rtools45-aarch64-6536-6492.exe -UseBasicParsing -UserAgent "NativeHost"
+          Start-Process -FilePath rtools45-aarch64-6536-6492.exe -ArgumentList "/install /norestart /verysilent /SUPPRESSMSGBOXES" -NoNewWindow -Wait
+
+      - name: Verify R aarch64 installation
+        run: |
+          $rscript = "C:\Program Files\R-aarch64\R-4.5.0\bin\Rscript.exe"
+          & $rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          & $rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          $rscript = "C:\Program Files\R-aarch64\R-4.5.0\bin\Rscript.exe"
+          & $rscript -e "install.packages(c('ggplot2'), repos='https://cloud.r-project.org')"
+
+      - name: Configure PATH for R aarch64
+        run: |
+          echo "C:\Program Files\R-aarch64\R-4.5.0\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Render website with r-aarch64 profile
+        run: quarto render --profile r-aarch64
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-r-aarch64
+          path: _site/

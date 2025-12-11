@@ -1,0 +1,98 @@
+---
+title: "R Visualization Demo"
+---
+
+## R Platform Verification
+
+```{r}
+# Show which R architecture is being used
+cat("R Platform:", R.version$platform, "\n")
+cat("R Version:", R.version$version.string, "\n")
+```
+
+## Base R Plots
+
+### Scatter Plot
+
+```{r}
+# Generate sample data
+set.seed(123)
+x <- rnorm(100)
+y <- 2 * x + rnorm(100)
+
+# Create scatter plot
+plot(x, y,
+     main = "Scatter Plot Example",
+     xlab = "X Variable",
+     ylab = "Y Variable",
+     pch = 19,
+     col = rgb(0.2, 0.4, 0.8, 0.6))
+abline(lm(y ~ x), col = "red", lwd = 2)
+```
+
+### Histogram
+
+```{r}
+# Create histogram with normal distribution
+data_hist <- rnorm(1000, mean = 100, sd = 15)
+hist(data_hist,
+     breaks = 30,
+     col = "lightblue",
+     main = "Histogram with Normal Distribution",
+     xlab = "Value",
+     probability = TRUE)
+curve(dnorm(x, mean = 100, sd = 15),
+      add = TRUE,
+      col = "red",
+      lwd = 2)
+```
+
+### Box Plot
+
+```{r}
+# Create grouped box plot
+groups <- data.frame(
+  Group_A = rnorm(50, mean = 10, sd = 2),
+  Group_B = rnorm(50, mean = 15, sd = 3),
+  Group_C = rnorm(50, mean = 12, sd = 2.5),
+  Group_D = rnorm(50, mean = 18, sd = 4)
+)
+
+boxplot(groups,
+        main = "Grouped Box Plot",
+        ylab = "Values",
+        col = c("lightblue", "lightgreen", "lightyellow", "lightpink"))
+```
+
+## ggplot2 Visualization
+
+```{r}
+library(ggplot2)
+
+# Create sample dataset
+sample_data <- data.frame(
+  x = rep(1:10, 3),
+  y = c(
+    1:10 + rnorm(10, sd = 0.5),
+    (1:10)^1.5 + rnorm(10, sd = 1),
+    log(1:10) * 5 + rnorm(10, sd = 0.3)
+  ),
+  group = rep(c("Linear", "Power", "Logarithmic"), each = 10)
+)
+
+# Create ggplot
+ggplot(sample_data, aes(x = x, y = y, color = group)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_line(linewidth = 1) +
+  theme_minimal() +
+  labs(
+    title = "Multiple Trend Comparison",
+    x = "X Axis",
+    y = "Y Axis",
+    color = "Trend Type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    legend.position = "bottom"
+  )
+```

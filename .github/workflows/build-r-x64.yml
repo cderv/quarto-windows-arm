@@ -1,0 +1,34 @@
+name: Build Website (R x64)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Verify R x64 (default on runner)
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: Rscript -e "install.packages(c('ggplot2'), repos='https://cloud.r-project.org')"
+
+      - name: Render website with r-x64 profile
+        run: quarto render --profile r-x64
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-r-x64
+          path: _site/

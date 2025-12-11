@@ -1,0 +1,54 @@
+---
+title: "R Analysis Demo"
+---
+
+## R Environment Information
+
+This page demonstrates R analysis capabilities on Windows ARM.
+
+```{r}
+# Display R version and platform information
+R.version$platform
+R.version$version.string
+```
+
+## Basic Data Analysis
+
+```{r}
+# Create sample dataset
+data <- data.frame(
+  category = rep(c("A", "B", "C", "D"), each = 25),
+  value = c(
+    rnorm(25, mean = 10, sd = 2),
+    rnorm(25, mean = 15, sd = 3),
+    rnorm(25, mean = 12, sd = 2.5),
+    rnorm(25, mean = 18, sd = 4)
+  )
+)
+
+# Summary statistics
+summary(data)
+```
+
+## Aggregated Statistics
+
+```{r}
+# Calculate mean and standard deviation by category
+aggregate(value ~ category, data = data, FUN = function(x) {
+  c(mean = mean(x), sd = sd(x), n = length(x))
+})
+```
+
+## Data Table
+
+```{r}
+# Display first 10 rows
+head(data, 10)
+```
+
+## Session Information
+
+```{r}
+# Full session info for debugging
+sessionInfo()
+```
