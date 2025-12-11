@@ -1,3 +1,8 @@
+project:
+  render:
+    - index.qmd
+    - about.qmd
+
 website:
   navbar:
     left:
