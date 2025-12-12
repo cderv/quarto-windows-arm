@@ -1,0 +1,69 @@
+name: Build Website (R aarch64 with Artifact Quarto)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Quarto artifact from PR #13790
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 20174989086 --repo quarto-dev/quarto-cli --name "Windows ZIP"
+
+      - name: Extract and setup Quarto from artifact
+        run: |
+          Expand-Archive -Path quarto-*.zip -DestinationPath $env:RUNNER_TEMP\quarto
+          $quartoPath = Get-ChildItem -Path $env:RUNNER_TEMP\quarto -Directory | Select-Object -First 1
+          echo "$($quartoPath.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify Quarto installation
+        run: |
+          quarto --version
+          quarto --paths
+
+      - name: Install R aarch64 and RTools45
+        run: |
+          $url = "https://www.r-project.org/nosvn/winutf8/aarch64/R-4-signed/R-4.5.0-aarch64.exe"
+          Invoke-WebRequest -Uri "$url" -OutFile R-4.5.0-aarch64.exe -UseBasicParsing -UserAgent "NativeHost"
+          Start-Process -FilePath R-4.5.0-aarch64.exe -ArgumentList "/install /norestart /verysilent /SUPPRESSMSGBOXES" -NoNewWindow -Wait
+          $url = "https://cran.r-project.org/bin/windows/Rtools/rtools45/files/rtools45-aarch64-6691-6492.exe"
+          Invoke-WebRequest -Uri "$url" -OutFile rtools45-aarch64-6691-6492.exe -UseBasicParsing -UserAgent "NativeHost"
+          Start-Process -FilePath rtools45-aarch64-6691-6492.exe -ArgumentList "/install /norestart /verysilent /SUPPRESSMSGBOXES" -NoNewWindow -Wait
+
+      - name: Verify R aarch64 installation
+        run: |
+          $rscript = "C:\Program Files\R-aarch64\R-4.5.0\bin\Rscript.exe"
+          & $rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          & $rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          $rscript = "C:\Program Files\R-aarch64\R-4.5.0\bin\Rscript.exe"
+          & $rscript -e "install.packages(c('rmarkdown', 'ggplot2'), repos='https://cloud.r-project.org')"
+
+      - name: Configure QUARTO_R for R aarch64
+        run: |
+          echo "QUARTO_R=C:\Program Files\R-aarch64\R-4.5.0\bin\Rscript.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify Quarto setup
+        run: quarto check --log-level=debug
+
+      - name: Render website with r-aarch64-artifact profile
+        env:
+          QUARTO_LOG_LEVEL: debug
+        run: quarto render --profile r-aarch64-artifact
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-r-aarch64-artifact
+          path: _site/

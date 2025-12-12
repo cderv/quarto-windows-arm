@@ -1,0 +1,15 @@
+project:
+  render:
+    - "*.qmd"
+
+website:
+  title: "testing windows arm - R x64 (Artifact Quarto)"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - about.qmd
+      - text: "R Analysis"
+        href: r-analysis.qmd
+      - text: "R Plots"
+        href: r-plots.qmd

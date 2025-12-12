@@ -10,9 +10,11 @@ Demonstrate and verify the behavior of Quarto rendering with different R archite
 - **Quarto with R x64 (emulated)**: Does not work ❌
 - **Quarto with R aarch64 (native ARM)**: Works ✅
 
+Additionally, test with a special Quarto build from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) that provides improved error messages for architecture mismatches.
+
 ## Test Scenarios
 
-Three separate GitHub Actions workflows test different configurations:
+Five separate GitHub Actions workflows test different configurations:
 
 ### 1. No R ([build-no-r.yml](.github/workflows/build-no-r.yml))
 
@@ -39,15 +41,36 @@ Tests Quarto with native ARM64 R installation.
 - Uses `QUARTO_R` environment variable to point to ARM R
 - **Status**: ✅ Expected to work
 
+### 4. R x64 with Artifact Quarto ([build-r-x64-artifact.yml](.github/workflows/build-r-x64-artifact.yml))
+
+Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) with emulated R x64.
+
+- Downloads Quarto build artifact from [GitHub Actions run #20174989086](https://github.com/quarto-dev/quarto-cli/actions/runs/20174989086)
+- Uses pre-installed R x64 from the runner
+- Attempts to render R-dependent content
+- **Status**: ❌ Expected to fail with improved error messages
+
+### 5. R aarch64 with Artifact Quarto ([build-r-aarch64-artifact.yml](.github/workflows/build-r-aarch64-artifact.yml))
+
+Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) with native ARM64 R.
+
+- Downloads Quarto build artifact from [GitHub Actions run #20174989086](https://github.com/quarto-dev/quarto-cli/actions/runs/20174989086)
+- Installs R 4.5.0 aarch64 explicitly
+- Installs RTools45 for ARM64
+- Uses `QUARTO_R` environment variable to point to ARM R
+- **Status**: ✅ Expected to work
+
 ## Implementation Details
 
 ### Quarto Profiles
 
-Three profiles control which content gets rendered:
+Five profiles control which content gets rendered:
 
 - **`no-r`**: Renders only `index.qmd` and `about.qmd`
 - **`r-x64`**: Renders all content including R-dependent pages
 - **`r-aarch64`**: Renders all content including R-dependent pages
+- **`r-x64-artifact`**: Renders all content with artifact Quarto and R x64
+- **`r-aarch64-artifact`**: Renders all content with artifact Quarto and R aarch64
 
 Profile configurations are in `_quarto-*.yml` files.
 
@@ -80,17 +103,21 @@ Check the [Actions tab](../../actions) to see the latest workflow runs.
 ```
 .
 ├── .github/workflows/
-│   ├── build-no-r.yml          # Workflow without R
-│   ├── build-r-x64.yml         # Workflow with R x64
-│   └── build-r-aarch64.yml     # Workflow with R ARM64
-├── _quarto.yml                  # Base Quarto configuration
-├── _quarto-no-r.yml            # Profile for no-R scenario
-├── _quarto-r-x64.yml           # Profile for R x64 scenario
-├── _quarto-r-aarch64.yml       # Profile for R ARM64 scenario
-├── index.qmd                    # Homepage (all profiles)
-├── about.qmd                    # About page (all profiles)
-├── r-analysis.qmd              # R analysis demo (R profiles only)
-└── r-plots.qmd                 # R visualization demo (R profiles only)
+│   ├── build-no-r.yml                # Workflow without R
+│   ├── build-r-x64.yml               # Workflow with R x64
+│   ├── build-r-aarch64.yml           # Workflow with R ARM64
+│   ├── build-r-x64-artifact.yml      # Workflow with R x64 and artifact Quarto
+│   └── build-r-aarch64-artifact.yml  # Workflow with R ARM64 and artifact Quarto
+├── _quarto.yml                        # Base Quarto configuration
+├── _quarto-no-r.yml                  # Profile for no-R scenario
+├── _quarto-r-x64.yml                 # Profile for R x64 scenario
+├── _quarto-r-aarch64.yml             # Profile for R ARM64 scenario
+├── _quarto-r-x64-artifact.yml        # Profile for R x64 with artifact Quarto
+├── _quarto-r-aarch64-artifact.yml    # Profile for R ARM64 with artifact Quarto
+├── index.qmd                          # Homepage (all profiles)
+├── about.qmd                          # About page (all profiles)
+├── r-analysis.qmd                    # R analysis demo (R profiles only)
+└── r-plots.qmd                       # R visualization demo (R profiles only)
 ```
 
 ## Resources

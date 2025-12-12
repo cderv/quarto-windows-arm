@@ -1,0 +1,54 @@
+name: Build Website (R x64 with Artifact Quarto)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Quarto artifact from PR #13790
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 20174989086 --repo quarto-dev/quarto-cli --name "Windows ZIP"
+
+      - name: Extract and setup Quarto from artifact
+        run: |
+          Expand-Archive -Path quarto-*.zip -DestinationPath $env:RUNNER_TEMP\quarto
+          $quartoPath = Get-ChildItem -Path $env:RUNNER_TEMP\quarto -Directory | Select-Object -First 1
+          echo "$($quartoPath.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify Quarto installation
+        run: |
+          quarto --version
+          quarto --paths
+
+      - name: Verify R x64 installation (pre-installed on runner)
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('rmarkdown', 'ggplot2'), repos='https://cloud.r-project.org')"
+
+      - name: Verify Quarto setup
+        run: quarto check --log-level=debug
+
+      - name: Render website with r-x64-artifact profile
+        env:
+          QUARTO_LOG_LEVEL: debug
+        run: quarto render --profile r-x64-artifact
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-r-x64-artifact
+          path: _site/
