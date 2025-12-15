@@ -45,7 +45,7 @@ Tests Quarto with native ARM64 R installation.
 
 Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) with emulated R x64.
 
-- Downloads Quarto build artifact from [GitHub Actions run #20174989086](https://github.com/quarto-dev/quarto-cli/actions/runs/20174989086)
+- Downloads Quarto build artifact from [GitHub Actions run #20233979482](https://github.com/quarto-dev/quarto-cli/actions/runs/20233979482)
 - Uses pre-installed R x64 from the runner
 - Attempts to render R-dependent content
 - **Status**: ❌ Expected to fail with improved error messages
@@ -54,7 +54,7 @@ Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quart
 
 Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) with native ARM64 R.
 
-- Downloads Quarto build artifact from [GitHub Actions run #20174989086](https://github.com/quarto-dev/quarto-cli/actions/runs/20174989086)
+- Downloads Quarto build artifact from [GitHub Actions run #20233979482](https://github.com/quarto-dev/quarto-cli/actions/runs/20233979482)
 - Installs R 4.5.0 aarch64 explicitly
 - Installs RTools45 for ARM64
 - Uses `QUARTO_R` environment variable to point to ARM R
