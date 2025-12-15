@@ -94,6 +94,42 @@ jobs:
 
           & $denoPath run --allow-all test-deno-rscript-workarounds.ts $rscriptPath $capabilitiesScript
 
+      - name: Test Node.js subprocess spawning
+        continue-on-error: true
+        run: |
+          Write-Host "Testing if Node.js can spawn x64 Rscript subprocess..."
+          $quartoCmd = Get-Command quarto
+          $quartoPath = Split-Path -Parent (Split-Path -Parent $quartoCmd.Source)
+          $capabilitiesScript = Join-Path $quartoPath "share\capabilities\knitr.R"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          node test-node-rscript.js $rscriptPath $capabilitiesScript
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::Node.js subprocess spawn SUCCEEDED - Issue is Deno-specific"
+          } else {
+            Write-Host "::warning::Node.js subprocess spawn FAILED - Issue affects multiple runtimes"
+          }
+
+      - name: Test Python subprocess spawning
+        continue-on-error: true
+        run: |
+          Write-Host "Testing if Python can spawn x64 Rscript subprocess..."
+          $quartoCmd = Get-Command quarto
+          $quartoPath = Split-Path -Parent (Split-Path -Parent $quartoCmd.Source)
+          $capabilitiesScript = Join-Path $quartoPath "share\capabilities\knitr.R"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          python test-python-rscript.py $rscriptPath $capabilitiesScript
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::Python subprocess spawn SUCCEEDED - Issue is Deno-specific"
+          } else {
+            Write-Host "::warning::Python subprocess spawn FAILED - Issue affects multiple runtimes"
+          }
+
       - name: Verify Quarto setup
         continue-on-error: true
         run: quarto check --log-level=debug
