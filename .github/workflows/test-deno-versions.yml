@@ -1,0 +1,112 @@
+name: Test Deno Versions with R x64
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-deno-versions:
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        deno-version:
+          - version: "2.4.5"
+            description: "Quarto bundled version"
+          - version: "2.5.0"
+            description: "Released 2024-12-05"
+          - version: "2.6.0"
+            description: "Latest stable"
+          - version: "latest"
+            description: "Absolute latest"
+
+    name: Deno ${{ matrix.deno-version.version }} (${{ matrix.deno-version.description }})
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Deno ${{ matrix.deno-version.version }}
+        run: |
+          Write-Host "Installing Deno ${{ matrix.deno-version.version }}..."
+
+          if ("${{ matrix.deno-version.version }}" -eq "latest") {
+            $version = gh api repos/denoland/deno/releases/latest --jq '.tag_name'
+            Write-Host "Latest version: $version"
+          } else {
+            $version = "v${{ matrix.deno-version.version }}"
+          }
+
+          $downloadUrl = "https://github.com/denoland/deno/releases/download/$version/deno-aarch64-pc-windows-msvc.zip"
+          Write-Host "Downloading: $downloadUrl"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile deno.zip -UseBasicParsing
+          Expand-Archive -Path deno.zip -DestinationPath deno-install -Force
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          Write-Host "Deno installed at: $denoPath"
+          & $denoPath --version
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "if (!require('yaml')) install.packages('yaml', repos='https://cloud.r-project.org')"
+
+      - name: Create test R script
+        run: |
+          $script = @"
+          cat(yaml::as.yaml(list(
+            platform = R.version[['platform']],
+            version = R.version[['version.string']],
+            test = 'success'
+          )))
+          "@
+          $script | Out-File -FilePath test-script.R -Encoding utf8
+
+      - name: Test direct Rscript execution (baseline)
+        run: |
+          Write-Host "Baseline: Direct Rscript execution"
+          $output = Rscript test-script.R 2>&1
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          Write-Host "Output: $output"
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Direct Rscript execution failed (unexpected!)"
+          }
+
+      - name: Test Deno ${{ matrix.deno-version.version }} subprocess spawn
+        continue-on-error: true
+        run: |
+          Write-Host "Testing Deno ${{ matrix.deno-version.version }} subprocess spawn of R x64..."
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-script.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::error::Deno ${{ matrix.deno-version.version }} FAILED to spawn R x64 subprocess (exit code: $exitCode)"
+            exit 1
+          } else {
+            Write-Host "::notice::Deno ${{ matrix.deno-version.version }} SUCCEEDED in spawning R x64 subprocess!"
+            exit 0
+          }
+
+  summary:
+    runs-on: windows-11-arm
+    needs: test-deno-versions
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          Write-Host "Deno version testing complete."
+          Write-Host "Check individual job results to see which versions work with R x64 on Windows ARM."
