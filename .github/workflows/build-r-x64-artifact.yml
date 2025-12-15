@@ -82,6 +82,18 @@ jobs:
             Write-Host "Deno subprocess spawn succeeded"
           }
 
+      - name: Test potential Deno workarounds
+        continue-on-error: true
+        run: |
+          Write-Host "Testing potential workarounds for Deno subprocess issue..."
+          $quartoCmd = Get-Command quarto
+          $quartoPath = Split-Path -Parent (Split-Path -Parent $quartoCmd.Source)
+          $capabilitiesScript = Join-Path $quartoPath "share\capabilities\knitr.R"
+          $rscriptPath = (Get-Command Rscript).Source
+          $denoPath = Join-Path $quartoPath "bin\tools\x86_64\deno.exe"
+
+          & $denoPath run --allow-all test-deno-rscript-workarounds.ts $rscriptPath $capabilitiesScript
+
       - name: Verify Quarto setup
         continue-on-error: true
         run: quarto check --log-level=debug
