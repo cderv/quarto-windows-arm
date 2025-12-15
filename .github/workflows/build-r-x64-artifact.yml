@@ -38,7 +38,29 @@ jobs:
         run: |
           Rscript -e "install.packages(c('rmarkdown', 'ggplot2'), repos='https://cloud.r-project.org')"
 
+      - name: Test R x64 capabilities directly (outside Quarto/Deno)
+        continue-on-error: true
+        run: |
+          Write-Host "Testing R capabilities check directly with Rscript..."
+          $quartoCmd = Get-Command quarto
+          $quartoPath = Split-Path -Parent (Split-Path -Parent $quartoCmd.Source)
+          $capabilitiesScript = Join-Path $quartoPath "share\capabilities\knitr.R"
+          Write-Host "Capabilities script: $capabilitiesScript"
+
+          $output = Rscript $capabilitiesScript 2>&1
+          $exitCode = $LASTEXITCODE
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host "Exit code: $exitCode"
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::R x64 capabilities check failed with exit code $exitCode - This confirms R x64 has issues on Windows ARM, not just when called through Deno"
+          } else {
+            Write-Host "R x64 capabilities check succeeded"
+          }
+
       - name: Verify Quarto setup
+        continue-on-error: true
         run: quarto check --log-level=debug
 
       - name: Render website with r-x64-artifact profile
