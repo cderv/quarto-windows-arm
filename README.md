@@ -94,6 +94,24 @@ This shows which R architecture is being used:
 - `QUARTO_R` environment variable pointing to `Rscript.exe`
 - RTools45 ARM64 version
 
+## Key Findings
+
+### R x64 Emulation Works, But Not Through Deno
+
+Testing reveals that **R x64 runs successfully on Windows ARM when called directly**, but **fails when called through Deno** (Quarto's JavaScript runtime):
+
+- **Direct execution** (PowerShell → Rscript): ✅ Exit code 0, valid YAML output
+- **Through Quarto/Deno**: ❌ Exit code -1073741569 (STATUS_NOT_SUPPORTED)
+
+This means:
+1. R x64 emulation itself works on Windows ARM
+2. The issue is specific to **Deno's subprocess spawning** on Windows ARM
+3. Quarto can detect and report this error (PR #13790), but the root cause is in Deno
+
+**Evidence**: See [workflow run #20234173159](https://github.com/cderv/quarto-windows-arm/actions/runs/20234173159) where the same `knitr.R` script succeeds when called directly but fails during `quarto check`.
+
+For detailed technical analysis, see [FINDINGS.md](FINDINGS.md).
+
 ## Workflow Status
 
 Check the [Actions tab](../../actions) to see the latest workflow runs.
@@ -117,7 +135,8 @@ Check the [Actions tab](../../actions) to see the latest workflow runs.
 ├── index.qmd                          # Homepage (all profiles)
 ├── about.qmd                          # About page (all profiles)
 ├── r-analysis.qmd                    # R analysis demo (R profiles only)
-└── r-plots.qmd                       # R visualization demo (R profiles only)
+├── r-plots.qmd                       # R visualization demo (R profiles only)
+└── FINDINGS.md                       # Technical analysis of R x64/Deno issue
 ```
 
 ## Resources
