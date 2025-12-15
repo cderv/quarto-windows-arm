@@ -85,6 +85,50 @@ Log excerpt:
 
 Note that the script produces valid YAML output before crashing, indicating partial execution success.
 
+### Test 3: Direct Deno Subprocess (Verification)
+
+To verify the hypothesis that Deno's subprocess spawning is the root cause, we added a test that calls Rscript through Deno directly, bypassing Quarto entirely.
+
+Test script (`test-deno-rscript.ts`):
+
+```typescript
+const command = new Deno.Command(rscriptPath, {
+  args: [capabilitiesScript],
+  stdout: "piped",
+  stderr: "piped",
+});
+
+const { code, stdout, stderr } = await command.output();
+```
+
+**Result**: ❌ Failure
+- Exit code: `-1073741569` (same as Quarto)
+- Output: Valid YAML with complete R capabilities before crash
+
+Log excerpt from [workflow run #20235400009](https://github.com/cderv/quarto-windows-arm/actions/runs/20235400009/job/58088650203):
+
+```
+Testing Deno subprocess spawning of Rscript...
+Rscript: C:\Program Files (x86)\R\R-4.5.1\bin\x64\Rscript.exe
+Script: C:\a\_temp\quarto\share\capabilities\knitr.R
+
+Exit code: -1073741569
+Stdout:
+--- YAML_START ---
+versionMajor: 4
+versionMinor: 5
+versionPatch: 1
+platform: x86_64-w64-mingw32
+packages:
+  knitr: "1.50"
+  rmarkdown: "2.30"
+--- YAML_END ---
+
+Deno subprocess spawn FAILED with exit code -1073741569
+```
+
+**Conclusion**: This definitively proves the issue is **Deno's subprocess spawning mechanism**, not Quarto-specific code.
+
 ## Technical Analysis
 
 ### Error Code: -1073741569 (0xC00000BB)
@@ -104,13 +148,18 @@ When PowerShell spawns Rscript directly:
 
 ### Why Deno Subprocess Fails
 
-Potential causes for Deno subprocess failure:
+**Confirmed**: Test 3 proves this is a Deno subprocess spawning issue, not Quarto-specific. When Deno attempts to spawn an x64 process on Windows ARM, it fails with `STATUS_NOT_SUPPORTED` even though:
+- The same x64 binary runs successfully when spawned by PowerShell
+- The process partially executes (produces valid output before crashing)
+- Windows WOW64 emulation is functional
 
-1. **Process creation flags**: Deno may use process creation flags that are incompatible with cross-architecture execution
-2. **Environment inheritance**: ARM64 Deno may not properly configure environment for x64 child processes
-3. **Deno Windows ARM support**: Deno's Windows ARM implementation may not handle WOW64 subprocess spawning correctly
+Possible root causes within Deno:
 
-This is likely a Deno issue rather than a Quarto issue.
+1. **Process creation flags**: Deno may use process creation flags incompatible with cross-architecture execution
+2. **Environment inheritance**: ARM64 Deno may not properly configure the environment for x64 child processes
+3. **WOW64 integration**: Deno's Windows ARM implementation may not correctly interface with WOW64 for subprocess spawning
+
+This is definitively a **Deno limitation on Windows ARM**, not a Quarto issue.
 
 ## Implications
 
@@ -134,8 +183,19 @@ This finding may warrant investigation by the Deno team:
 
 ## Evidence
 
-- **Successful direct execution**: [Workflow run #20234173159, Test R x64 capabilities step](https://github.com/cderv/quarto-windows-arm/actions/runs/20234173159/job/58084315795#step:7:11)
-- **Failed Deno execution**: [Same workflow, Verify Quarto setup step](https://github.com/cderv/quarto-windows-arm/actions/runs/20234173159/job/58084315795#step:8:55)
+All evidence from GitHub Actions workflow runs on `windows-11-arm` runners:
+
+- **Test 1 - Direct PowerShell → Rscript** (✅ Success): [Workflow run #20234173159, step 7](https://github.com/cderv/quarto-windows-arm/actions/runs/20234173159/job/58084315795#step:7:11)
+  - Exit code: 0
+  - Valid YAML output
+
+- **Test 2 - Quarto → Deno → Rscript** (❌ Failed): [Same workflow, step 8](https://github.com/cderv/quarto-windows-arm/actions/runs/20234173159/job/58084315795#step:8:55)
+  - Exit code: -1073741569
+  - Valid YAML output before crash
+
+- **Test 3 - Direct Deno → Rscript** (❌ Failed): [Workflow run #20235400009, step 7](https://github.com/cderv/quarto-windows-arm/actions/runs/20235400009/job/58088650203#step:7:38)
+  - Exit code: -1073741569 (identical to Test 2)
+  - Proves issue is Deno subprocess spawning, not Quarto
 
 ## Related Work
 
