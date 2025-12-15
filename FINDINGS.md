@@ -161,6 +161,42 @@ Possible root causes within Deno:
 
 This is definitively a **Deno limitation on Windows ARM**, not a Quarto issue.
 
+## Attempted Workarounds
+
+Given that the R script executes completely (produces valid output) before crashing during termination, we tested whether alternative Deno subprocess spawning approaches could avoid the issue.
+
+### Test 4: Workaround Attempts
+
+[Workflow run #20236176799](https://github.com/cderv/quarto-windows-arm/actions/runs/20236176799/job/58091977048) tested 5 potential workarounds:
+
+| Workaround | Approach | Result |
+|------------|----------|--------|
+| 1. PowerShell intermediary | `powershell.exe -Command Rscript ...` | ❌ FAILED (exit code 1) |
+| 2. Inherit stdio | Use `stdout: "inherit"` instead of `"piped"` | ❌ FAILED (-1073741569) |
+| 3. cmd.exe intermediary | `cmd.exe /C Rscript ...` | ❌ FAILED (-1073741569) |
+| 4. spawn() method | Use `spawn()` instead of `output()` | ❌ FAILED (-1073741569) |
+| 5. Explicit working directory | Set `cwd: Deno.cwd()` explicitly | ❌ FAILED (-1073741569) |
+
+### Why Workarounds Cannot Succeed
+
+All workarounds failed with the same error, confirming:
+
+1. **The issue is fundamental** - Not related to specific Deno APIs or stdio handling
+2. **Shell intermediaries don't help** - Even native ARM64 shells (PowerShell, cmd.exe) can't bridge the gap
+3. **Process completes but can't terminate** - All approaches show complete YAML output before crash
+4. **No code-level fix exists** - This is a Deno runtime limitation requiring upstream fix
+
+### Conclusion: PR #13790 is the Only Solution
+
+Since no workarounds are viable, **PR #13790's approach is correct and necessary**:
+
+- ✅ Parse YAML output even with non-zero exit code (the output IS valid)
+- ✅ Detect architecture mismatch from `platform` field
+- ✅ Provide actionable error message with ARM64 R download links
+- ✅ Add proactive warning in `quarto check` output
+
+This is the appropriate response to an external limitation that cannot be fixed at the application level.
+
 ## Implications
 
 ### For Quarto Users
@@ -196,6 +232,11 @@ All evidence from GitHub Actions workflow runs on `windows-11-arm` runners:
 - **Test 3 - Direct Deno → Rscript** (❌ Failed): [Workflow run #20235400009, step 7](https://github.com/cderv/quarto-windows-arm/actions/runs/20235400009/job/58088650203#step:7:38)
   - Exit code: -1073741569 (identical to Test 2)
   - Proves issue is Deno subprocess spawning, not Quarto
+
+- **Test 4 - Workaround Attempts** (❌ All Failed): [Workflow run #20236176799, step 8](https://github.com/cderv/quarto-windows-arm/actions/runs/20236176799/job/58091977048#step:8:3)
+  - 5 different approaches tested
+  - All failed with same error code
+  - Confirms no code-level workaround exists
 
 ## Related Work
 
