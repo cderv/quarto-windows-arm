@@ -30,7 +30,7 @@ jobs:
 
       - name: Install Deno ${{ matrix.deno-version.version }}
         run: |
-          Write-Host "Installing Deno ${{ matrix.deno-version.version }}..."
+          Write-Host "Installing Deno ${{ matrix.deno-version.version }} (x64, like Quarto uses)..."
 
           if ("${{ matrix.deno-version.version }}" -eq "latest") {
             $version = gh api repos/denoland/deno/releases/latest --jq '.tag_name'
@@ -39,7 +39,7 @@ jobs:
             $version = "v${{ matrix.deno-version.version }}"
           }
 
-          $downloadUrl = "https://github.com/denoland/deno/releases/download/$version/deno-aarch64-pc-windows-msvc.zip"
+          $downloadUrl = "https://github.com/denoland/deno/releases/download/$version/deno-x86_64-pc-windows-msvc.zip"
           Write-Host "Downloading: $downloadUrl"
 
           Invoke-WebRequest -Uri $downloadUrl -OutFile deno.zip -UseBasicParsing
