@@ -19,7 +19,7 @@ jobs:
         run: |
           Write-Host "=== R Installation Info ==="
           Rscript -e "cat('Platform:', R.version[['platform']], '\n')"
-          Rscript -e "cat('Arch:', .Platform$r_arch, '\n')"
+          Rscript -e "cat('Arch:', .Platform`$r_arch, '\n')"
           Write-Host ""
 
       - name: Test ARM detection from R x64
