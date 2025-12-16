@@ -1,0 +1,84 @@
+name: Test Windows ARM Detection
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-r-x64:
+    runs-on: windows-11-arm
+    name: Test ARM Detection from R x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Write-Host "=== R Installation Info ==="
+          Rscript -e "cat('Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('Arch:', .Platform$r_arch, '\n')"
+          Write-Host ""
+
+      - name: Test ARM detection from R x64
+        run: |
+          Write-Host "=== Testing Windows ARM Detection from R x64 ==="
+          Write-Host "Expected: Should detect Windows ARM = TRUE"
+          Write-Host "Expected: R reports platform as x86_64-w64-mingw32"
+          Write-Host ""
+
+          Rscript detect-windows-arm.R
+
+  test-deno-x64:
+    runs-on: windows-11-arm
+    name: Test ARM Detection from Deno x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Deno x64
+        run: |
+          $version = "v2.4.5"
+          $downloadUrl = "https://github.com/denoland/deno/releases/download/$version/deno-x86_64-pc-windows-msvc.zip"
+          Write-Host "Downloading Deno x64: $downloadUrl"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile deno.zip -UseBasicParsing
+          Expand-Archive -Path deno.zip -DestinationPath deno-install -Force
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          Write-Host "Deno installed at: $denoPath"
+          & $denoPath --version
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Test ARM detection from Deno x64
+        run: |
+          Write-Host "=== Testing Windows ARM Detection from Deno x64 ==="
+          Write-Host "Expected: Should detect Windows ARM = TRUE"
+          Write-Host "Expected: Deno reports arch as x86_64"
+          Write-Host ""
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          & $denoPath run --allow-ffi detect-windows-arm.ts
+
+  summary:
+    runs-on: windows-11-arm
+    needs: [test-r-x64, test-deno-x64]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Windows ARM Detection Test Summary"
+          Write-Host "========================================="
+          Write-Host ""
+          Write-Host "Both R x64 and Deno x64 should successfully detect"
+          Write-Host "that they are running on Windows ARM using IsWow64Process2."
+          Write-Host ""
+          Write-Host "This is critical for Quarto PR #13790 to work correctly."
+          Write-Host "Without this detection, x64 processes cannot tell they're"
+          Write-Host "running on ARM Windows."
