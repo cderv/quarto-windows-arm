@@ -1,0 +1,144 @@
+name: Test R x64 Package Loading on Windows ARM
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-r-scripts:
+    runs-on: windows-11-arm
+    name: R x64 Package Loading Tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: "Test 1: Simple R script (no packages)"
+        id: test-simple
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 1: Simple R script (no packages)"
+          Write-Host "========================================="
+
+          $output = Rscript test-simple.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ Test 1 PASSED - Simple R scripts work on Windows ARM x64"
+            exit 0
+          } else {
+            Write-Host "::error::❌ Test 1 FAILED - Even simple R scripts fail (unexpected!)"
+            exit 1
+          }
+
+      - name: "Test 2: R script loading knitr"
+        id: test-knitr
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 2: R script loading knitr package"
+          Write-Host "========================================="
+
+          $output = Rscript test-knitr.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ Test 2 PASSED - knitr loading works (unexpected success!)"
+            exit 0
+          } else {
+            Write-Host "::warning::❌ Test 2 FAILED (exit: $exitCode) - knitr package loading causes crash"
+            exit 1
+          }
+
+      - name: "Test 3: R script loading rmarkdown"
+        id: test-rmarkdown
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 3: R script loading rmarkdown package"
+          Write-Host "========================================="
+
+          $output = Rscript test-rmarkdown.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ Test 3 PASSED - rmarkdown loading works (unexpected success!)"
+            exit 0
+          } else {
+            Write-Host "::warning::❌ Test 3 FAILED (exit: $exitCode) - rmarkdown package loading causes crash"
+            exit 1
+          }
+
+      - name: "Test 4: R script loading both knitr and rmarkdown"
+        id: test-both
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 4: R script loading knitr + rmarkdown"
+          Write-Host "========================================="
+          Write-Host "(This mimics Quarto's knitr.R capabilities script)"
+          Write-Host ""
+
+          $output = Rscript test-both.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ Test 4 PASSED - Both packages work (unexpected success!)"
+            exit 0
+          } else {
+            Write-Host "::warning::❌ Test 4 FAILED (exit: $exitCode) - Loading both packages causes crash"
+            exit 1
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "TEST SUMMARY"
+          Write-Host "========================================="
+          Write-Host ""
+          Write-Host "Expected behavior on Windows ARM with R x64:"
+          Write-Host "- Test 1 (simple): ✅ PASS - Basic R works"
+          Write-Host "- Test 2 (knitr): ❌ FAIL - Package loading causes crash"
+          Write-Host "- Test 3 (rmarkdown): ❌ FAIL - Package loading causes crash"
+          Write-Host "- Test 4 (both): ❌ FAIL - Package loading causes crash"
+          Write-Host ""
+          Write-Host "Root cause: R x64 emulation issue with knitr/rmarkdown packages"
+          Write-Host "NOT a subprocess spawning issue - simple scripts work fine"
