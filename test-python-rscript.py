@@ -8,6 +8,9 @@ import subprocess
 import sys
 import platform
 
+# Configure UTF-8 encoding for Windows
+sys.stdout.reconfigure(encoding='utf-8')
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: python test-python-rscript.py <rscript_path> <script_path>")
@@ -40,16 +43,16 @@ def main():
             print(result.stderr)
 
         if result.returncode == 0:
-            print("\n[SUCCESS] Python subprocess spawn SUCCEEDED")
+            print("\n✅ Python subprocess spawn SUCCEEDED")
             print("This means the issue is Deno-specific, not a general Windows ARM limitation")
             sys.exit(0)
         else:
-            print(f"\n[FAILED] Python subprocess spawn FAILED with exit code {result.returncode}")
+            print(f"\n❌ Python subprocess spawn FAILED with exit code {result.returncode}")
             print("This means the issue affects multiple runtimes, not just Deno")
             sys.exit(1)
 
     except Exception as error:
-        print("\n[FAILED] Python subprocess spawn threw exception:")
+        print("\n❌ Python subprocess spawn threw exception:")
         print(error)
         sys.exit(1)
 
