@@ -39,18 +39,18 @@ child.on('close', (code) => {
   }
 
   if (code === 0) {
-    console.log('\n✅ Node.js subprocess spawn SUCCEEDED');
+    console.log('\n[SUCCESS] Node.js subprocess spawn SUCCEEDED');
     console.log('This means the issue is Deno-specific, not a general Windows ARM limitation');
     process.exit(0);
   } else {
-    console.log(`\n❌ Node.js subprocess spawn FAILED with exit code ${code}`);
+    console.log(`\n[FAILED] Node.js subprocess spawn FAILED with exit code ${code}`);
     console.log('This means the issue affects multiple runtimes, not just Deno');
     process.exit(1);
   }
 });
 
 child.on('error', (error) => {
-  console.error(`\n❌ Node.js subprocess spawn threw exception:`);
+  console.error('\n[FAILED] Node.js subprocess spawn threw exception:');
   console.error(error);
   process.exit(1);
 });
