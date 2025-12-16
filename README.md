@@ -99,10 +99,11 @@ Tests whether subprocess spawning issues affect other runtimes.
 
 **Critical test for sequential execution reliability** - Tests whether running R scripts multiple times in succession produces consistent results.
 
-- Runs same R script 5× sequentially
-- Alternates between 3 different R scripts
-- Tests Deno spawning same script 5× sequentially
-- Tests Quarto rendering same file 3× sequentially
+- Runs knitr script 5× sequentially (tests passing script consistency)
+- Runs rmarkdown script 5× sequentially (tests failing script consistency)
+- Alternates between 3 different R scripts (tests cross-script state)
+- Tests Deno spawning same script 5× sequentially (tests subprocess consistency)
+- Tests Quarto rendering same file 3× sequentially (tests end-to-end consistency)
 - **Purpose**: Catch state corruption bugs where first execution works but subsequent executions fail
 - **Expected**: Exit codes should be consistent across all iterations
 

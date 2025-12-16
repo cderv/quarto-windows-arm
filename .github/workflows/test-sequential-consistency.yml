@@ -104,6 +104,102 @@ jobs:
           Write-Host "- First execution succeeds, but subsequent executions fail"
           Write-Host "- OR exit codes change unpredictably between runs"
 
+  sequential-r-rmarkdown:
+    name: Run rmarkdown script 5× sequentially
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Run test-rmarkdown.R - Iteration 1
+        id: iter1
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 1/5"
+          Write-Host "========================================="
+          Rscript test-rmarkdown.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_1=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Run test-rmarkdown.R - Iteration 2
+        id: iter2
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 2/5"
+          Write-Host "========================================="
+          Rscript test-rmarkdown.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_2=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Run test-rmarkdown.R - Iteration 3
+        id: iter3
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 3/5"
+          Write-Host "========================================="
+          Rscript test-rmarkdown.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_3=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Run test-rmarkdown.R - Iteration 4
+        id: iter4
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 4/5"
+          Write-Host "========================================="
+          Rscript test-rmarkdown.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_4=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Run test-rmarkdown.R - Iteration 5
+        id: iter5
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 5/5"
+          Write-Host "========================================="
+          Rscript test-rmarkdown.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_5=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Verify exit code consistency
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Sequential Consistency Check (rmarkdown)"
+          Write-Host "========================================="
+          Write-Host "Exit codes across 5 iterations:"
+          Write-Host "  Iteration 1: ${{ steps.iter1.outputs.exit_code_1 }}"
+          Write-Host "  Iteration 2: ${{ steps.iter2.outputs.exit_code_2 }}"
+          Write-Host "  Iteration 3: ${{ steps.iter3.outputs.exit_code_3 }}"
+          Write-Host "  Iteration 4: ${{ steps.iter4.outputs.exit_code_4 }}"
+          Write-Host "  Iteration 5: ${{ steps.iter5.outputs.exit_code_5 }}"
+          Write-Host ""
+          Write-Host "✅ CONSISTENT if all exit codes are identical"
+          Write-Host "❌ INCONSISTENT if exit codes vary between iterations"
+          Write-Host ""
+          Write-Host "This test is critical because rmarkdown is known to fail."
+          Write-Host "We're verifying that it fails CONSISTENTLY, not intermittently."
+
   sequential-r-alternating:
     name: Alternate between 3 scripts sequentially
     runs-on: windows-11-arm
