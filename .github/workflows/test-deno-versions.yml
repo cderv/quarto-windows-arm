@@ -58,48 +58,85 @@ jobs:
 
       - name: Install R packages
         run: |
-          Rscript -e "if (!require('yaml')) install.packages('yaml', repos='https://cloud.r-project.org')"
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
 
-      - name: Create test R script
-        run: |
-          $script = @"
-          cat(yaml::as.yaml(list(
-            platform = R.version[['platform']],
-            version = R.version[['version.string']],
-            test = 'success'
-          )))
-          "@
-          $script | Out-File -FilePath test-script.R -Encoding utf8
-
-      - name: Test direct Rscript execution (baseline)
-        run: |
-          Write-Host "Baseline: Direct Rscript execution"
-          $output = Rscript test-script.R 2>&1
-          $exitCode = $LASTEXITCODE
-          Write-Host "Exit code: $exitCode"
-          Write-Host "Output: $output"
-
-          if ($exitCode -ne 0) {
-            Write-Host "::warning::Direct Rscript execution failed (unexpected!)"
-          }
-
-      - name: Test Deno ${{ matrix.deno-version.version }} subprocess spawn
+      - name: Test Deno ${{ matrix.deno-version.version }} with simple R script
+        id: test-simple
         continue-on-error: true
         run: |
-          Write-Host "Testing Deno ${{ matrix.deno-version.version }} subprocess spawn of R x64..."
+          Write-Host "========================================="
+          Write-Host "Test 1: Deno + Simple R script (no packages)"
+          Write-Host "========================================="
+
           $denoPath = Join-Path $PWD "deno-install\deno.exe"
           $rscriptPath = (Get-Command Rscript).Source
 
-          & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-script.R
+          & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-simple.R
           $exitCode = $LASTEXITCODE
 
           if ($exitCode -ne 0) {
-            Write-Host "::error::Deno ${{ matrix.deno-version.version }} FAILED to spawn R x64 subprocess (exit code: $exitCode)"
+            Write-Host "::error::Deno ${{ matrix.deno-version.version }} + simple script FAILED (exit: $exitCode)"
             exit 1
           } else {
-            Write-Host "::notice::Deno ${{ matrix.deno-version.version }} SUCCEEDED in spawning R x64 subprocess!"
+            Write-Host "::notice::✅ Deno ${{ matrix.deno-version.version }} + simple script SUCCEEDED"
             exit 0
           }
+
+      - name: Test Deno ${{ matrix.deno-version.version }} with knitr script
+        id: test-knitr
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 2: Deno + R script loading knitr"
+          Write-Host "========================================="
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-knitr.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::❌ Deno ${{ matrix.deno-version.version }} + knitr FAILED (exit: $exitCode) - Expected"
+            exit 1
+          } else {
+            Write-Host "::notice::✅ Deno ${{ matrix.deno-version.version }} + knitr SUCCEEDED - Unexpected!"
+            exit 0
+          }
+
+      - name: Test Deno ${{ matrix.deno-version.version }} with both packages
+        id: test-both
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 3: Deno + R script loading knitr+rmarkdown"
+          Write-Host "========================================="
+          Write-Host "(This mimics what Quarto does)"
+          Write-Host ""
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-both.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::❌ Deno ${{ matrix.deno-version.version }} + both packages FAILED (exit: $exitCode) - Expected"
+            exit 1
+          } else {
+            Write-Host "::notice::✅ Deno ${{ matrix.deno-version.version }} + both packages SUCCEEDED - Unexpected!"
+            exit 0
+          }
+
+      - name: Summary for Deno ${{ matrix.deno-version.version }}
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Summary: Deno ${{ matrix.deno-version.version }}"
+          Write-Host "========================================="
+          Write-Host "Expected: Simple scripts succeed, package-loading scripts fail"
+          Write-Host "This proves issue is script-specific, not Deno version-specific"
 
   summary:
     runs-on: windows-11-arm
