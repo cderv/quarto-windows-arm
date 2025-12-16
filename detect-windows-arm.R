@@ -1,6 +1,12 @@
 #!/usr/bin/env Rscript
-# Detect Windows ARM from x64 R process
-# Uses IsWow64Process2 Windows API to get native architecture
+# Demonstrates R x64 cannot detect Windows ARM via IsWow64Process2
+#
+# LIMITATION: R's .Call() FFI is designed for R's C API, not arbitrary
+# Windows API calls. The IsWow64Process2 function requires pointer
+# output parameters that .Call() doesn't handle correctly.
+#
+# Result: This detection FAILS on Windows ARM (returns FALSE when it
+# should return TRUE), proving R scripts cannot self-detect ARM Windows.
 
 is_windows_arm <- function() {
   if (.Platform$OS.type != "windows")
@@ -24,6 +30,9 @@ is_windows_arm <- function() {
   processMachine <- as.integer(0)
   nativeMachine  <- as.integer(0)
 
+  # KNOWN ISSUE: R's .Call() cannot properly handle Windows API pointer parameters
+  # The following code WILL FAIL to detect ARM even on ARM Windows
+  # Output parameters (processMachine, nativeMachine) are not modified
   res <- .Call(
     iswow64process2,
     getNativeSymbolInfo("GetCurrentProcess", kernel32),
@@ -32,6 +41,7 @@ is_windows_arm <- function() {
   )
 
   # IMAGE_FILE_MACHINE_ARM64 = 0xAA64 = 43620
+  # This check always returns FALSE because nativeMachine is never updated
   nativeMachine == 0xAA64
 }
 

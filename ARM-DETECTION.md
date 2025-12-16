@@ -35,46 +35,35 @@ This works even from x64 processes running under WOW64 emulation.
 
 ### R Implementation
 
+**⚠️ LIMITATION: R cannot reliably detect ARM Windows**
+
+R's `.Call()` FFI is designed for R's internal C API, not arbitrary Windows DLL calls. The `IsWow64Process2` function requires pointer output parameters that `.Call()` doesn't handle correctly.
+
+**Test result on Windows ARM x64:** Returns `FALSE` when it should return `TRUE`
+
 ```r
+# This code FAILS on Windows ARM - included for demonstration only
 is_windows_arm <- function() {
-  if (.Platform$OS.type != "windows")
-    return(FALSE)
+  # ... attempts to use IsWow64Process2 via .Call() ...
 
-  kernel32 <- "kernel32.dll"
-
-  iswow64process2 <- getNativeSymbolInfo(
-    name = "IsWow64Process2",
-    PACKAGE = kernel32,
-    withRegistrationInfo = FALSE,
-    mustExist = FALSE
-  )
-
-  if (is.null(iswow64process2))
-    return(FALSE)
-
-  processMachine <- as.integer(0)
-  nativeMachine  <- as.integer(0)
-
-  res <- .Call(
-    iswow64process2,
-    getNativeSymbolInfo("GetCurrentProcess", kernel32),
-    processMachine,
-    nativeMachine
-  )
-
-  # IMAGE_FILE_MACHINE_ARM64 = 0xAA64 = 43620
-  nativeMachine == 0xAA64
+  # PROBLEM: Output parameters (processMachine, nativeMachine) are
+  # never modified by .Call() when calling Windows API functions
+  # The check always returns FALSE even on ARM Windows
 }
 ```
 
-**Key points:**
-- Uses `getNativeSymbolInfo` to get function pointer
-- Returns `FALSE` if API not available (Windows < 10)
-- Checks `nativeMachine` against ARM64 constant
+**Why this fails:**
+- R's `.Call()` is designed for R's C API, not arbitrary DLL calls
+- Windows API functions with pointer output parameters don't work correctly
+- Proper detection would require a compiled C extension or specialized package
 
-**Test script:** `detect-windows-arm.R`
+**Conclusion:** R scripts **cannot self-detect** ARM Windows. Quarto (via Deno) must do the detection.
+
+**Test script:** `detect-windows-arm.R` (demonstrates the failure)
 
 ### Deno/TypeScript Implementation
+
+**✅ WORKS: Deno can successfully detect ARM Windows**
 
 ```typescript
 function isWindowsArm(): boolean {
@@ -95,13 +84,14 @@ function isWindowsArm(): boolean {
     });
 
     const hProcess = kernel32.symbols.GetCurrentProcess();
-    const processMachine = new Uint16Array(1);
-    const nativeMachine = new Uint16Array(1);
+    const processMachineBuffer = new Uint16Array(1);
+    const nativeMachineBuffer = new Uint16Array(1);
 
+    // CRITICAL: Use Deno.UnsafePointer.of() to convert TypedArrays to pointers
     const result = kernel32.symbols.IsWow64Process2(
       hProcess,
-      processMachine,
-      nativeMachine
+      Deno.UnsafePointer.of(processMachineBuffer),
+      Deno.UnsafePointer.of(nativeMachineBuffer)
     );
 
     kernel32.close();
@@ -110,7 +100,7 @@ function isWindowsArm(): boolean {
 
     // IMAGE_FILE_MACHINE_ARM64 = 0xAA64 = 43620
     const IMAGE_FILE_MACHINE_ARM64 = 0xAA64;
-    return nativeMachine[0] === IMAGE_FILE_MACHINE_ARM64;
+    return nativeMachineBuffer[0] === IMAGE_FILE_MACHINE_ARM64;
   } catch (error) {
     return false;
   }
@@ -119,34 +109,45 @@ function isWindowsArm(): boolean {
 
 **Key points:**
 - Uses Deno FFI (`Deno.dlopen`) to call Windows API
+- **CRITICAL:** Must use `Deno.UnsafePointer.of()` to convert TypedArray buffers to pointers
 - Requires `--allow-ffi` permission
 - Returns `false` if API not available or error occurs
 - Uses `Uint16Array` for USHORT parameters
+
+**Test result on Windows ARM x64:** ✅ Returns `true` correctly
 
 **Test script:** `detect-windows-arm.ts`
 
 ## Testing
 
-**Workflow:** `.github/workflows/test-arm-detection.yml`
+**Workflow:** [`.github/workflows/test-arm-detection.yml`](https://github.com/cderv/quarto-windows-arm/actions/runs/20272725035)
 
-Tests both implementations on Windows ARM GitHub Actions runner:
+Tests both implementations on Windows ARM GitHub Actions runner.
 
-1. **R x64 → ARM detection**
-   - R reports `x86_64-w64-mingw32`
-   - Detection function returns `TRUE`
+### Actual Test Results
 
-2. **Deno x64 → ARM detection**
-   - Deno reports `x86_64`
-   - Detection function returns `true`
+**Test environment:** Windows 11 ARM, GitHub Actions `windows-11-arm` runner
 
-**Expected behavior:**
+1. **Deno x64 → ARM detection** ✅ SUCCESS
+   - Deno reports `x86_64` (standard detection)
+   - Detection function returns `true` (IsWow64Process2)
+   - **Correctly identifies ARM Windows**
 
-| Process | Standard Detection | IsWow64Process2 Detection |
-|---------|-------------------|---------------------------|
-| R x64 on ARM | `x86_64-w64-mingw32` | ✅ Windows ARM |
-| R ARM64 on ARM | `aarch64-w64-mingw32` | ✅ Windows ARM |
-| Deno x64 on ARM | `x86_64` | ✅ Windows ARM |
-| R x64 on x64 | `x86_64-w64-mingw32` | ❌ Not ARM |
+2. **R x64 → ARM detection** ❌ FAILURE
+   - R reports `x86_64-w64-mingw32` (standard detection)
+   - Detection function returns `FALSE` (IsWow64Process2 fails)
+   - **Cannot detect ARM Windows due to FFI limitation**
+
+### Detection Comparison
+
+| Process | Standard Detection | IsWow64Process2 Detection | Works? |
+|---------|-------------------|---------------------------|--------|
+| Deno x64 on ARM | `x86_64` | ✅ Windows ARM | ✅ YES |
+| R x64 on ARM | `x86_64-w64-mingw32` | ❌ Not detected | ❌ NO |
+| R ARM64 on ARM | `aarch64-w64-mingw32` | N/A (already native) | N/A |
+| Deno x64 on x64 | `x86_64` | ❌ Not ARM | ✅ YES |
+
+**Conclusion:** Only Deno can reliably detect ARM Windows from x64 processes. R cannot.
 
 ## For Quarto PR #13790
 
@@ -232,14 +233,29 @@ deno run --allow-ffi detect-windows-arm.ts
 
 ## Summary
 
+**Key findings from test results:**
+
+1. **Deno FFI works** ✅
+   - Deno x64 can successfully detect ARM Windows using `IsWow64Process2`
+   - Requires `Deno.UnsafePointer.of()` for pointer conversion
+   - Returns correct results on both ARM and x64 Windows
+
+2. **R FFI fails** ❌
+   - R's `.Call()` cannot handle Windows API pointer parameters
+   - R x64 cannot self-detect ARM Windows
+   - Would require compiled C extension to work
+
+**Implications for PR #13790:**
+
 **Without IsWow64Process2:**
-- ❌ x64 processes on ARM cannot detect they're on ARM
-- ❌ PR #13790's detection won't work
+- ❌ Deno's `Deno.build.arch` returns `x86_64` on ARM (wrong)
+- ❌ PR #13790's detection won't work with architecture strings
 - ❌ Users get generic errors, not ARM-specific guidance
 
-**With IsWow64Process2:**
-- ✅ x64 processes can detect Windows ARM
+**With IsWow64Process2 (Deno FFI):**
+- ✅ Deno can detect Windows ARM from x64 processes
 - ✅ PR #13790 can identify "x64 R on ARM Windows"
 - ✅ Users get helpful error messages with ARM64 R download links
+- ✅ R scripts don't need to self-detect (Quarto does it)
 
-This is **essential** for the PR to work correctly.
+**This is essential for the PR to work correctly.**
