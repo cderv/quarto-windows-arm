@@ -1,0 +1,171 @@
+name: Test Deno Subprocess Spawning
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  deno-spawn-r-x64:
+    name: Deno x64 2.4.5 → R x64 subprocess
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Deno x64 2.4.5 (Quarto bundled version)
+        run: |
+          Write-Host "Installing Deno 2.4.5 (x64, like Quarto uses)..."
+
+          $version = "v2.4.5"
+          $downloadUrl = "https://github.com/denoland/deno/releases/download/$version/deno-x86_64-pc-windows-msvc.zip"
+          Write-Host "Downloading: $downloadUrl"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile deno.zip -UseBasicParsing
+          Expand-Archive -Path deno.zip -DestinationPath deno-install -Force
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          Write-Host "Deno installed at: $denoPath"
+          & $denoPath --version
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Test Deno spawning simple R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 1: Deno subprocess → Simple R script"
+          Write-Host "========================================="
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-simple.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::error::Deno → simple script FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Deno → simple script SUCCEEDED"
+          }
+
+      - name: Test Deno spawning knitr R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 2: Deno subprocess → knitr R script"
+          Write-Host "========================================="
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-knitr.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Deno → knitr script FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Deno → knitr script SUCCEEDED"
+          }
+
+      - name: Test Deno spawning both packages R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 3: Deno subprocess → knitr+rmarkdown R script"
+          Write-Host "========================================="
+          Write-Host "(This mimics Quarto's actual usage)"
+          Write-Host ""
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-both.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Deno → both packages FAILED (exit: $exitCode) - Expected"
+          } else {
+            Write-Host "::notice::✅ Deno → both packages SUCCEEDED - Unexpected!"
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Deno Subprocess Test Summary"
+          Write-Host "========================================="
+          Write-Host "This test isolates Deno subprocess spawning behavior."
+          Write-Host "Compare with test-subprocess-direct-rscript to determine if issue is subprocess-specific."
+
+  deno-workarounds:
+    name: Test Deno workaround approaches
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Deno x64 2.4.5
+        run: |
+          Write-Host "Installing Deno 2.4.5..."
+
+          $version = "v2.4.5"
+          $downloadUrl = "https://github.com/denoland/deno/releases/download/$version/deno-x86_64-pc-windows-msvc.zip"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile deno.zip -UseBasicParsing
+          Expand-Archive -Path deno.zip -DestinationPath deno-install -Force
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          & $denoPath --version
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Test Deno workaround approaches
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Testing 5 Different Deno Spawn Approaches"
+          Write-Host "========================================="
+          Write-Host "This tests various workarounds for Deno subprocess spawning:"
+          Write-Host "1. PowerShell intermediary"
+          Write-Host "2. Inherit stdio instead of piped"
+          Write-Host "3. cmd.exe intermediary"
+          Write-Host "4. spawn() instead of output()"
+          Write-Host "5. Explicit working directory"
+          Write-Host ""
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          & $denoPath run --allow-all test-deno-rscript-workarounds.ts $rscriptPath test-both.R
+          $exitCode = $LASTEXITCODE
+
+          Write-Host ""
+          Write-Host "Workaround test complete (exit: $exitCode)"
+          Write-Host "Check output above to see which approaches (if any) succeeded."
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Workaround Test Summary"
+          Write-Host "========================================="
+          Write-Host "This test explores whether different Deno spawn approaches can work around the issue."
+          Write-Host "Expected: All approaches fail (no workaround possible at application level)."

@@ -14,9 +14,13 @@ Additionally, test with a special Quarto build from [PR #13790](https://github.c
 
 ## Test Scenarios
 
-Five separate GitHub Actions workflows test different configurations:
+Thirteen GitHub Actions workflows organized by purpose test different configurations.
 
-### 1. No R ([build-no-r.yml](.github/workflows/build-no-r.yml))
+### Build Workflows (5)
+
+These workflows focus solely on Quarto rendering - they test whether Quarto can successfully render content with different R configurations.
+
+#### 1. No R ([build-no-r.yml](.github/workflows/build-no-r.yml))
 
 Tests pure Quarto rendering without R dependencies.
 
@@ -24,33 +28,33 @@ Tests pure Quarto rendering without R dependencies.
 - No R installation required
 - **Status**: ✅ Expected to work
 
-### 2. R x64 - Emulated ([build-r-x64.yml](.github/workflows/build-r-x64.yml))
+#### 2. R x64 - Emulated ([build-r-x64.yml](.github/workflows/build-r-x64.yml))
 
-Tests Quarto with default R x86_64 (runs under emulation on ARM).
+Tests Quarto rendering with default R x86_64 (runs under emulation on ARM).
 
 - Uses pre-installed R x64 from the runner
-- Attempts to render R-dependent content
+- Renders R-dependent content
 - **Status**: ❌ Expected to fail - R x64 emulation issues on Windows ARM
 
-### 3. R aarch64 - Native ARM ([build-r-aarch64.yml](.github/workflows/build-r-aarch64.yml))
+#### 3. R aarch64 - Native ARM ([build-r-aarch64.yml](.github/workflows/build-r-aarch64.yml))
 
-Tests Quarto with native ARM64 R installation.
+Tests Quarto rendering with native ARM64 R installation.
 
 - Installs R 4.5.0 aarch64 explicitly
 - Installs RTools45 for ARM64
 - Uses `QUARTO_R` environment variable to point to ARM R
 - **Status**: ✅ Expected to work
 
-### 4. R x64 with Artifact Quarto ([build-r-x64-artifact.yml](.github/workflows/build-r-x64-artifact.yml))
+#### 4. R x64 with Artifact Quarto ([build-r-x64-artifact.yml](.github/workflows/build-r-x64-artifact.yml))
 
-Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) with emulated R x64.
+Tests Quarto artifact from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) rendering with emulated R x64.
 
 - Downloads Quarto build artifact from [GitHub Actions run #20273691338](https://github.com/quarto-dev/quarto-cli/actions/runs/20273691338)
 - Uses pre-installed R x64 from the runner
-- Attempts to render R-dependent content
+- Renders R-dependent content
 - **Status**: ❌ Expected to fail with improved error messages
 
-### 5. R aarch64 with Artifact Quarto ([build-r-aarch64-artifact.yml](.github/workflows/build-r-aarch64-artifact.yml))
+#### 5. R aarch64 with Artifact Quarto ([build-r-aarch64-artifact.yml](.github/workflows/build-r-aarch64-artifact.yml))
 
 Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) with native ARM64 R.
 
@@ -59,6 +63,76 @@ Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quart
 - Installs RTools45 for ARM64
 - Uses `QUARTO_R` environment variable to point to ARM R
 - **Status**: ✅ Expected to work
+
+### Test Workflows (8)
+
+These workflows perform focused investigation of specific technical questions about R x64 compatibility.
+
+#### 6. Direct R Execution ([test-subprocess-direct-rscript.yml](.github/workflows/test-subprocess-direct-rscript.yml))
+
+Tests R x64 execution directly without any subprocess layer.
+
+- Runs R scripts directly with Rscript (PowerShell → Rscript)
+- Tests simple scripts, knitr-only, rmarkdown-only, and both packages
+- **Purpose**: Isolate whether issues are in R x64 itself vs. subprocess spawning
+- **Expected**: rmarkdown-loading scripts fail due to R x64/ARM incompatibility
+
+#### 7. Deno Subprocess Spawning ([test-subprocess-deno.yml](.github/workflows/test-subprocess-deno.yml))
+
+Tests Deno subprocess spawning behavior with R x64.
+
+- Tests Deno spawning Rscript with different R scripts
+- Tests 5 different workaround approaches
+- **Purpose**: Isolate Deno-specific subprocess spawning issues
+- **Expected**: Fails when loading rmarkdown package
+
+#### 8. Other Runtime Subprocess Spawning ([test-subprocess-runtimes.yml](.github/workflows/test-subprocess-runtimes.yml))
+
+Tests whether subprocess spawning issues affect other runtimes.
+
+- Node.js spawning Rscript subprocesses
+- Python spawning Rscript subprocesses
+- **Purpose**: Determine if issue is Deno-specific or affects multiple runtimes
+- **Expected**: All runtimes show same failure pattern with rmarkdown
+
+#### 9. Sequential Execution Consistency ([test-sequential-consistency.yml](.github/workflows/test-sequential-consistency.yml))
+
+**Critical test for sequential execution reliability** - Tests whether running R scripts multiple times in succession produces consistent results.
+
+- Runs same R script 5× sequentially
+- Alternates between 3 different R scripts
+- Tests Deno spawning same script 5× sequentially
+- Tests Quarto rendering same file 3× sequentially
+- **Purpose**: Catch state corruption bugs where first execution works but subsequent executions fail
+- **Expected**: Exit codes should be consistent across all iterations
+
+#### 10. R Package Loading ([test-r-package-loading.yml](.github/workflows/test-r-package-loading.yml))
+
+Tests R package loading in isolation.
+
+- Direct PowerShell execution only (no subprocess layer)
+- Tests simple script, knitr-only, rmarkdown-only, both packages
+- **Purpose**: Primary direct execution test baseline
+- **Expected**: Isolates package-specific failures
+
+#### 11. Deno Version Comparison ([test-deno-versions-isolated.yml](.github/workflows/test-deno-versions-isolated.yml))
+
+Tests multiple Deno versions with proper per-job isolation.
+
+- Matrix: 4 Deno versions (2.4.5, 2.5.0, 2.6.0, latest) × 3 R scripts = 12 jobs
+- Each matrix job installs R packages independently
+- **Purpose**: Determine if newer Deno versions fix the issue
+- **Expected**: All versions show identical behavior (version-independent issue)
+
+#### 12. ARM Detection ([test-arm-detection.yml](.github/workflows/test-arm-detection.yml))
+
+Tests Windows ARM detection from x64 processes.
+
+- Demonstrates that x64 processes report arch as "x86_64" not "ARM"
+- Tests Deno FFI calling IsWow64Process2 Windows API
+- Tests R FFI limitations with Windows API
+- **Purpose**: Validate PR #13790's ARM detection approach
+- **Result**: Deno FFI works successfully, R FFI has limitations
 
 ## Implementation Details
 
@@ -121,12 +195,19 @@ Check the [Actions tab](../../actions) to see the latest workflow runs.
 ```
 .
 ├── .github/workflows/
-│   ├── build-no-r.yml                # Workflow without R
-│   ├── build-r-x64.yml               # Workflow with R x64
-│   ├── build-r-aarch64.yml           # Workflow with R ARM64
-│   ├── build-r-x64-artifact.yml      # Workflow with R x64 and artifact Quarto
-│   └── build-r-aarch64-artifact.yml  # Workflow with R ARM64 and artifact Quarto
-├── _quarto.yml                        # Base Quarto configuration
+│   ├── build-no-r.yml                        # Build: Quarto without R
+│   ├── build-r-x64.yml                       # Build: Quarto with R x64
+│   ├── build-r-aarch64.yml                   # Build: Quarto with R ARM64
+│   ├── build-r-x64-artifact.yml              # Build: Artifact Quarto with R x64
+│   ├── build-r-aarch64-artifact.yml          # Build: Artifact Quarto with R ARM64
+│   ├── test-subprocess-direct-rscript.yml    # Test: Direct R execution
+│   ├── test-subprocess-deno.yml              # Test: Deno subprocess spawning
+│   ├── test-subprocess-runtimes.yml          # Test: Node.js/Python subprocess spawning
+│   ├── test-sequential-consistency.yml       # Test: Sequential execution consistency
+│   ├── test-r-package-loading.yml            # Test: R package loading
+│   ├── test-deno-versions-isolated.yml       # Test: Deno version comparison
+│   └── test-arm-detection.yml                # Test: ARM Windows detection
+├── _quarto.yml                                # Base Quarto configuration
 ├── _quarto-no-r.yml                  # Profile for no-R scenario
 ├── _quarto-r-x64.yml                 # Profile for R x64 scenario
 ├── _quarto-r-aarch64.yml             # Profile for R ARM64 scenario

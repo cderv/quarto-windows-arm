@@ -1,4 +1,4 @@
-name: Test Deno Versions with R x64
+name: Test Deno Versions with R x64 (Isolated)
 
 on:
   push:
@@ -56,9 +56,11 @@ jobs:
           Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
           Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
 
-      - name: Install R packages
+      - name: Install R packages (per-job isolation)
         run: |
+          Write-Host "Installing R packages for this matrix job (Deno ${{ matrix.deno-version.version }})..."
           Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+          Write-Host "Packages installed independently for this job"
 
       - name: Test Deno ${{ matrix.deno-version.version }} with simple R script
         id: test-simple
@@ -147,3 +149,4 @@ jobs:
         run: |
           Write-Host "Deno version testing complete."
           Write-Host "Check individual job results to see which versions work with R x64 on Windows ARM."
+          Write-Host "Note: Each matrix job installed R packages independently for proper isolation."

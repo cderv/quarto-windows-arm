@@ -1,0 +1,101 @@
+name: Test Direct Rscript Execution
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-r-x64-direct:
+    name: Direct R x64 execution (no subprocess layer)
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation (pre-installed on runner)
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Test simple R script (no packages)
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 1: Direct Rscript → Simple script"
+          Write-Host "========================================="
+
+          Rscript test-simple.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::error::Direct Rscript with simple script FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Direct Rscript with simple script SUCCEEDED"
+          }
+
+      - name: Test R script loading knitr
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 2: Direct Rscript → knitr script"
+          Write-Host "========================================="
+
+          Rscript test-knitr.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Direct Rscript with knitr FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Direct Rscript with knitr SUCCEEDED"
+          }
+
+      - name: Test R script loading rmarkdown
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 3: Direct Rscript → rmarkdown script"
+          Write-Host "========================================="
+
+          Rscript test-rmarkdown.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Direct Rscript with rmarkdown FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Direct Rscript with rmarkdown SUCCEEDED"
+          }
+
+      - name: Test R script loading both knitr + rmarkdown
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 4: Direct Rscript → knitr+rmarkdown script"
+          Write-Host "========================================="
+          Write-Host "(This mimics what Quarto's knitr.R does)"
+          Write-Host ""
+
+          Rscript test-both.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Direct Rscript with both packages FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Direct Rscript with both packages SUCCEEDED"
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Direct Rscript Execution Test Summary"
+          Write-Host "========================================="
+          Write-Host "This test isolates R x64 behavior without any subprocess layer."
+          Write-Host "If these tests fail, the issue is in R x64 itself, not subprocess spawning."
+          Write-Host "Expected: rmarkdown-loading scripts fail due to R x64/ARM incompatibility."

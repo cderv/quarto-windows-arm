@@ -1,0 +1,349 @@
+name: Test Sequential Execution Consistency
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  sequential-r-knitr:
+    name: Run knitr script 5× sequentially
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Run test-knitr.R - Iteration 1
+        id: iter1
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 1/5"
+          Write-Host "========================================="
+          Rscript test-knitr.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_1=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Run test-knitr.R - Iteration 2
+        id: iter2
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 2/5"
+          Write-Host "========================================="
+          Rscript test-knitr.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_2=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Run test-knitr.R - Iteration 3
+        id: iter3
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 3/5"
+          Write-Host "========================================="
+          Rscript test-knitr.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_3=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Run test-knitr.R - Iteration 4
+        id: iter4
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 4/5"
+          Write-Host "========================================="
+          Rscript test-knitr.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_4=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Run test-knitr.R - Iteration 5
+        id: iter5
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Iteration 5/5"
+          Write-Host "========================================="
+          Rscript test-knitr.R
+          $exitCode = $LASTEXITCODE
+          Write-Host "Exit code: $exitCode"
+          echo "exit_code_5=$exitCode" >> $env:GITHUB_OUTPUT
+
+      - name: Verify exit code consistency
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Sequential Consistency Check"
+          Write-Host "========================================="
+          Write-Host "Exit codes across 5 iterations:"
+          Write-Host "  Iteration 1: ${{ steps.iter1.outputs.exit_code_1 }}"
+          Write-Host "  Iteration 2: ${{ steps.iter2.outputs.exit_code_2 }}"
+          Write-Host "  Iteration 3: ${{ steps.iter3.outputs.exit_code_3 }}"
+          Write-Host "  Iteration 4: ${{ steps.iter4.outputs.exit_code_4 }}"
+          Write-Host "  Iteration 5: ${{ steps.iter5.outputs.exit_code_5 }}"
+          Write-Host ""
+          Write-Host "✅ CONSISTENT if all exit codes are identical"
+          Write-Host "❌ INCONSISTENT if exit codes vary between iterations"
+          Write-Host ""
+          Write-Host "This test catches state corruption bugs where:"
+          Write-Host "- First execution succeeds, but subsequent executions fail"
+          Write-Host "- OR exit codes change unpredictably between runs"
+
+  sequential-r-alternating:
+    name: Alternate between 3 scripts sequentially
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Cycle 1 - Run all 3 scripts
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Cycle 1: knitr → rmarkdown → both"
+          Write-Host "========================================="
+
+          Write-Host "Running test-knitr.R..."
+          Rscript test-knitr.R
+          $exit1 = $LASTEXITCODE
+          Write-Host "test-knitr.R exit code: $exit1"
+          Write-Host ""
+
+          Write-Host "Running test-rmarkdown.R..."
+          Rscript test-rmarkdown.R
+          $exit2 = $LASTEXITCODE
+          Write-Host "test-rmarkdown.R exit code: $exit2"
+          Write-Host ""
+
+          Write-Host "Running test-both.R..."
+          Rscript test-both.R
+          $exit3 = $LASTEXITCODE
+          Write-Host "test-both.R exit code: $exit3"
+          Write-Host ""
+
+      - name: Cycle 2 - Run all 3 scripts
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Cycle 2: knitr → rmarkdown → both"
+          Write-Host "========================================="
+
+          Write-Host "Running test-knitr.R..."
+          Rscript test-knitr.R
+          $exit1 = $LASTEXITCODE
+          Write-Host "test-knitr.R exit code: $exit1"
+          Write-Host ""
+
+          Write-Host "Running test-rmarkdown.R..."
+          Rscript test-rmarkdown.R
+          $exit2 = $LASTEXITCODE
+          Write-Host "test-rmarkdown.R exit code: $exit2"
+          Write-Host ""
+
+          Write-Host "Running test-both.R..."
+          Rscript test-both.R
+          $exit3 = $LASTEXITCODE
+          Write-Host "test-both.R exit code: $exit3"
+          Write-Host ""
+
+      - name: Cycle 3 - Run all 3 scripts
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Cycle 3: knitr → rmarkdown → both"
+          Write-Host "========================================="
+
+          Write-Host "Running test-knitr.R..."
+          Rscript test-knitr.R
+          $exit1 = $LASTEXITCODE
+          Write-Host "test-knitr.R exit code: $exit1"
+          Write-Host ""
+
+          Write-Host "Running test-rmarkdown.R..."
+          Rscript test-rmarkdown.R
+          $exit2 = $LASTEXITCODE
+          Write-Host "test-rmarkdown.R exit code: $exit2"
+          Write-Host ""
+
+          Write-Host "Running test-both.R..."
+          Rscript test-both.R
+          $exit3 = $LASTEXITCODE
+          Write-Host "test-both.R exit code: $exit3"
+          Write-Host ""
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Alternating Script Test Summary"
+          Write-Host "========================================="
+          Write-Host "This test catches cross-script state pollution:"
+          Write-Host "- Does running script A affect script B's outcome?"
+          Write-Host "- Do exit codes remain consistent across cycles?"
+          Write-Host ""
+          Write-Host "Check logs above - exit codes should be consistent across all 3 cycles."
+
+  sequential-deno-spawn:
+    name: Deno spawn same script 5× sequentially
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Deno x64 2.4.5
+        run: |
+          $version = "v2.4.5"
+          $downloadUrl = "https://github.com/denoland/deno/releases/download/$version/deno-x86_64-pc-windows-msvc.zip"
+
+          Invoke-WebRequest -Uri $downloadUrl -OutFile deno.zip -UseBasicParsing
+          Expand-Archive -Path deno.zip -DestinationPath deno-install -Force
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          & $denoPath --version
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Deno spawn test-knitr.R - 5 iterations
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Deno Subprocess Sequential Test"
+          Write-Host "========================================="
+
+          $denoPath = Join-Path $PWD "deno-install\deno.exe"
+          $rscriptPath = (Get-Command Rscript).Source
+
+          $exitCodes = @()
+
+          for ($i = 1; $i -le 5; $i++) {
+            Write-Host ""
+            Write-Host "Iteration $i/5"
+            Write-Host "----------------"
+
+            & $denoPath run --allow-run --allow-read test-deno-rscript.ts $rscriptPath test-knitr.R
+            $exitCode = $LASTEXITCODE
+            $exitCodes += $exitCode
+            Write-Host "Exit code: $exitCode"
+          }
+
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Exit Code Consistency Check"
+          Write-Host "========================================="
+          Write-Host "Exit codes: $($exitCodes -join ', ')"
+
+          if (($exitCodes | Select-Object -Unique).Count -eq 1) {
+            Write-Host "✅ CONSISTENT: All exit codes identical"
+          } else {
+            Write-Host "❌ INCONSISTENT: Exit codes vary between iterations"
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Deno Sequential Spawn Summary"
+          Write-Host "========================================="
+          Write-Host "This test catches Deno-specific state issues:"
+          Write-Host "- Does Deno subprocess state corrupt between spawns?"
+          Write-Host "- Do exit codes remain consistent?"
+
+  sequential-quarto-render:
+    name: Render same qmd 3× sequentially
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('rmarkdown', 'ggplot2'), repos='https://cloud.r-project.org')"
+
+      - name: Configure QUARTO_R
+        run: |
+          $rscriptPath = (Get-Command Rscript).Source
+          echo "QUARTO_R=$rscriptPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Render r-analysis.qmd - Iteration 1
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Render Iteration 1/3"
+          Write-Host "========================================="
+          quarto render r-analysis.qmd --profile r-x64
+          $exit1 = $LASTEXITCODE
+          Write-Host "Exit code: $exit1"
+
+      - name: Render r-analysis.qmd - Iteration 2
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Render Iteration 2/3"
+          Write-Host "========================================="
+          quarto render r-analysis.qmd --profile r-x64
+          $exit2 = $LASTEXITCODE
+          Write-Host "Exit code: $exit2"
+
+      - name: Render r-analysis.qmd - Iteration 3
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Render Iteration 3/3"
+          Write-Host "========================================="
+          quarto render r-analysis.qmd --profile r-x64
+          $exit3 = $LASTEXITCODE
+          Write-Host "Exit code: $exit3"
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Sequential Quarto Render Summary"
+          Write-Host "========================================="
+          Write-Host "This is the end-to-end test:"
+          Write-Host "- Does Quarto + R behave consistently across renders?"
+          Write-Host "- This mimics real-world usage patterns"
+          Write-Host ""
+          Write-Host "Check logs above for exit code consistency."

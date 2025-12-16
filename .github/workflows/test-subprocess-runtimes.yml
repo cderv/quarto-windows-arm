@@ -1,0 +1,179 @@
+name: Test Other Runtime Subprocess Spawning
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  nodejs-spawn-r-x64:
+    name: Node.js → R x64 subprocess
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Node.js installation (pre-installed on runner)
+        run: |
+          node --version
+          npm --version
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Test Node.js spawning simple R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 1: Node.js subprocess → Simple R script"
+          Write-Host "========================================="
+
+          $rscriptPath = (Get-Command Rscript).Source
+
+          node test-node-rscript.js $rscriptPath test-simple.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::error::Node.js → simple script FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Node.js → simple script SUCCEEDED"
+          }
+
+      - name: Test Node.js spawning knitr R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 2: Node.js subprocess → knitr R script"
+          Write-Host "========================================="
+
+          $rscriptPath = (Get-Command Rscript).Source
+
+          node test-node-rscript.js $rscriptPath test-knitr.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Node.js → knitr script FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Node.js → knitr script SUCCEEDED"
+          }
+
+      - name: Test Node.js spawning both packages R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 3: Node.js subprocess → knitr+rmarkdown R script"
+          Write-Host "========================================="
+
+          $rscriptPath = (Get-Command Rscript).Source
+
+          node test-node-rscript.js $rscriptPath test-both.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Node.js → both packages FAILED (exit: $exitCode)"
+            Write-Host "If this fails like Deno, issue affects multiple runtimes"
+          } else {
+            Write-Host "::notice::✅ Node.js → both packages SUCCEEDED"
+            Write-Host "If this succeeds unlike Deno, issue is Deno-specific"
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Node.js Subprocess Test Summary"
+          Write-Host "========================================="
+          Write-Host "Compare with Deno results to determine if issue is runtime-specific."
+
+  python-spawn-r-x64:
+    name: Python → R x64 subprocess
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Python installation (pre-installed on runner)
+        run: |
+          python --version
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: Test Python spawning simple R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 1: Python subprocess → Simple R script"
+          Write-Host "========================================="
+
+          $rscriptPath = (Get-Command Rscript).Source
+
+          python test-python-rscript.py $rscriptPath test-simple.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::error::Python → simple script FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Python → simple script SUCCEEDED"
+          }
+
+      - name: Test Python spawning knitr R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 2: Python subprocess → knitr R script"
+          Write-Host "========================================="
+
+          $rscriptPath = (Get-Command Rscript).Source
+
+          python test-python-rscript.py $rscriptPath test-knitr.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Python → knitr script FAILED (exit: $exitCode)"
+          } else {
+            Write-Host "::notice::✅ Python → knitr script SUCCEEDED"
+          }
+
+      - name: Test Python spawning both packages R script
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 3: Python subprocess → knitr+rmarkdown R script"
+          Write-Host "========================================="
+
+          $rscriptPath = (Get-Command Rscript).Source
+
+          python test-python-rscript.py $rscriptPath test-both.R
+          $exitCode = $LASTEXITCODE
+
+          if ($exitCode -ne 0) {
+            Write-Host "::warning::Python → both packages FAILED (exit: $exitCode)"
+            Write-Host "If this fails like Deno, issue affects multiple runtimes"
+          } else {
+            Write-Host "::notice::✅ Python → both packages SUCCEEDED"
+            Write-Host "If this succeeds unlike Deno, issue is Deno-specific"
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "Python Subprocess Test Summary"
+          Write-Host "========================================="
+          Write-Host "Compare with Deno results to determine if issue is runtime-specific."

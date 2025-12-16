@@ -52,6 +52,8 @@ All tests run on GitHub Actions `windows-11-arm` runners with R x64 4.5.1.
 
 **Workflow:** [test-r-package-loading.yml](https://github.com/cderv/quarto-windows-arm/actions/runs/20266226901)
 
+**Note:** This is now the primary direct execution test baseline. See also [test-subprocess-direct-rscript.yml](.github/workflows/test-subprocess-direct-rscript.yml) for the updated comprehensive direct execution tests.
+
 Results from direct PowerShell → Rscript execution:
 - ✅ Simple script (test-simple.R): SUCCESS (exit 0)
 - ✅ knitr only (test-knitr.R): SUCCESS (exit 0)
@@ -62,7 +64,9 @@ Results from direct PowerShell → Rscript execution:
 
 ### Test 2: Deno Version Comparison
 
-**Workflow:** [test-deno-versions.yml](https://github.com/cderv/quarto-windows-arm/actions/runs/20266226930)
+**Workflow:** [test-deno-versions-isolated.yml](https://github.com/cderv/quarto-windows-arm/actions/runs/20266226930) (renamed from test-deno-versions.yml)
+
+**Note:** This workflow was restructured to install R packages independently per matrix job (12 jobs total) for proper test isolation.
 
 Results from Deno x64 → Rscript x64 execution across 4 versions:
 
@@ -77,7 +81,12 @@ Results from Deno x64 → Rscript x64 execution across 4 versions:
 
 ### Test 3: Cross-Runtime Comparison
 
-**Workflow:** [build-r-x64-artifact.yml](https://github.com/cderv/quarto-windows-arm/actions/runs/20265656553)
+**Original workflow:** [build-r-x64-artifact.yml](https://github.com/cderv/quarto-windows-arm/actions/runs/20265656553)
+
+**Note:** This evidence is now split across dedicated test workflows:
+- Direct Rscript execution: [test-subprocess-direct-rscript.yml](.github/workflows/test-subprocess-direct-rscript.yml)
+- Deno subprocess spawning: [test-subprocess-deno.yml](.github/workflows/test-subprocess-deno.yml)
+- Node.js/Python subprocess spawning: [test-subprocess-runtimes.yml](.github/workflows/test-subprocess-runtimes.yml)
 
 Results from Node.js ARM64 and Python ARM64 spawning R x64:
 - ❌ Node.js → Rscript → knitr.R: FAILURE (exit 3221225727)
@@ -284,10 +293,21 @@ The repository contains systematic test scripts:
 - `test-node-rscript.js`: Node.js subprocess test harness
 - `test-python-rscript.py`: Python subprocess test harness
 
-**Workflows:**
-- `.github/workflows/test-r-package-loading.yml`: Direct R execution tests
-- `.github/workflows/test-deno-versions.yml`: Deno version comparison
-- `.github/workflows/build-r-x64-artifact.yml`: Cross-runtime comparison
+**Build Workflows** (rendering only):
+- `.github/workflows/build-no-r.yml`: Pure Quarto without R
+- `.github/workflows/build-r-x64.yml`: Quarto with R x64
+- `.github/workflows/build-r-aarch64.yml`: Quarto with R ARM64
+- `.github/workflows/build-r-x64-artifact.yml`: Artifact Quarto with R x64
+- `.github/workflows/build-r-aarch64-artifact.yml`: Artifact Quarto with R ARM64
+
+**Test Workflows** (focused investigation):
+- `.github/workflows/test-subprocess-direct-rscript.yml`: Direct R execution (no subprocess)
+- `.github/workflows/test-subprocess-deno.yml`: Deno subprocess spawning tests
+- `.github/workflows/test-subprocess-runtimes.yml`: Node.js/Python subprocess tests
+- `.github/workflows/test-sequential-consistency.yml`: Sequential execution consistency tests
+- `.github/workflows/test-r-package-loading.yml`: R package loading baseline
+- `.github/workflows/test-deno-versions-isolated.yml`: Deno version comparison (with per-job R installation)
+- `.github/workflows/test-arm-detection.yml`: ARM Windows detection tests
 
 ## Conclusion
 

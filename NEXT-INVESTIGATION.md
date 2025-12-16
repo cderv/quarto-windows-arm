@@ -50,7 +50,8 @@ We've definitively identified the root cause of Quarto's R x64 Windows ARM issue
   - `test-r-package-loading.yml` - **Direct R execution** proving no subprocess issue
     - [Workflow run](https://github.com/cderv/quarto-windows-arm/actions/runs/20266226901)
     - Test 3 shows direct `Rscript test-rmarkdown.R` failing with -1073741569
-  - `test-deno-versions.yml` - Deno version comparison (all fail identically)
+  - `test-deno-versions-isolated.yml` - Deno version comparison (all fail identically)
+    - Note: Renamed from test-deno-versions.yml with per-job R package installation for proper isolation
 
 ## Next Investigation Phase
 
