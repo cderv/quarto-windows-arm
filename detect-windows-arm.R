@@ -8,11 +8,14 @@ is_windows_arm <- function() {
 
   kernel32 <- "kernel32.dll"
 
-  iswow64process2 <- getNativeSymbolInfo(
-    name = "IsWow64Process2",
-    PACKAGE = kernel32,
-    withRegistrationInfo = FALSE,
-    mustExist = FALSE
+  # Try to get IsWow64Process2 symbol (may not exist on older Windows)
+  iswow64process2 <- tryCatch(
+    getNativeSymbolInfo(
+      name = "IsWow64Process2",
+      PACKAGE = kernel32,
+      withRegistrationInfo = FALSE
+    ),
+    error = function(e) NULL
   )
 
   if (is.null(iswow64process2))
@@ -46,11 +49,13 @@ if (.Platform$OS.type == "windows") {
 
   # Check if we're running under WOW64
   kernel32 <- "kernel32.dll"
-  iswow64 <- getNativeSymbolInfo(
-    name = "IsWow64Process",
-    PACKAGE = kernel32,
-    withRegistrationInfo = FALSE,
-    mustExist = FALSE
+  iswow64 <- tryCatch(
+    getNativeSymbolInfo(
+      name = "IsWow64Process",
+      PACKAGE = kernel32,
+      withRegistrationInfo = FALSE
+    ),
+    error = function(e) NULL
   )
 
   if (!is.null(iswow64)) {
