@@ -23,15 +23,15 @@ function isWindowsArm(): boolean {
     // Get current process handle
     const hProcess = kernel32.symbols.GetCurrentProcess();
 
-    // Prepare output parameters
-    const processMachine = new Uint16Array(1);
-    const nativeMachine = new Uint16Array(1);
+    // Prepare output parameters - allocate buffer for USHORT (2 bytes each)
+    const processMachineBuffer = new Uint16Array(1);
+    const nativeMachineBuffer = new Uint16Array(1);
 
-    // Call IsWow64Process2
+    // Call IsWow64Process2 with pointers to buffers
     const result = kernel32.symbols.IsWow64Process2(
       hProcess,
-      processMachine,
-      nativeMachine
+      Deno.UnsafePointer.of(processMachineBuffer),
+      Deno.UnsafePointer.of(nativeMachineBuffer)
     );
 
     kernel32.close();
@@ -43,7 +43,7 @@ function isWindowsArm(): boolean {
 
     // IMAGE_FILE_MACHINE_ARM64 = 0xAA64 = 43620
     const IMAGE_FILE_MACHINE_ARM64 = 0xAA64;
-    return nativeMachine[0] === IMAGE_FILE_MACHINE_ARM64;
+    return nativeMachineBuffer[0] === IMAGE_FILE_MACHINE_ARM64;
   } catch (error) {
     // IsWow64Process2 not available (Windows < 10) or other error
     console.error("Error detecting Windows ARM:", error);
@@ -77,10 +77,10 @@ if (Deno.build.os === "windows") {
     });
 
     const hProcess = kernel32.symbols.GetCurrentProcess();
-    const isWow64 = new Uint32Array(1);
-    kernel32.symbols.IsWow64Process(hProcess, isWow64);
+    const isWow64Buffer = new Uint32Array(1);
+    kernel32.symbols.IsWow64Process(hProcess, Deno.UnsafePointer.of(isWow64Buffer));
 
-    console.log("- IsWow64Process:", isWow64[0] === 1);
+    console.log("- IsWow64Process:", isWow64Buffer[0] === 1);
     kernel32.close();
   } catch (e) {
     console.log("- IsWow64Process check failed:", e);
