@@ -1,0 +1,233 @@
+name: Confirm setHook Root Cause
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'test-sethook-only.R'
+      - 'test-rmarkdown-onload-only.R'
+      - '.github/workflows/test-sethook-hypothesis.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-sethook-only:
+    name: "Test 1: setHook() mechanism only"
+    runs-on: windows-11-arm
+    outputs:
+      exit_code: ${{ steps.test.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install knitr
+        shell: pwsh
+        run: |
+          Rscript -e "if (!require('knitr', quietly = TRUE)) install.packages('knitr', repos = 'https://cloud.r-project.org')"
+
+      - name: Run test-sethook-only.R
+        id: test
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "Running test-sethook-only.R..."
+          Write-Host ""
+          $output = Rscript test-sethook-only.R 2>&1
+          $exitCode = $LASTEXITCODE
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+
+          # Save exit code for summary
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
+          if ($exitCode -eq -1073741569) {
+            Write-Host "Detected STATUS_NOT_SUPPORTED crash"
+          }
+
+      - name: Analyze result
+        shell: pwsh
+        run: |
+          $exitCode = '${{ steps.test.outputs.exit_code }}'
+          Write-Host "Test exit code: $exitCode"
+          Write-Host ""
+          if ($exitCode -eq '-1073741569') {
+            Write-Host "✅ HYPOTHESIS CONFIRMED"
+            Write-Host "setHook(packageEvent(...)) mechanism ALONE causes the crash."
+            Write-Host ""
+            Write-Host "This proves the root cause is in R's hook registration/cleanup"
+            Write-Host "for packageEvent hooks under WOW64 emulation."
+          } elseif ($exitCode -ne '0') {
+            Write-Host "⚠️ Test failed with different error (exit $exitCode)"
+          } else {
+            Write-Host "❌ HYPOTHESIS REJECTED"
+            Write-Host "setHook mechanism alone does NOT cause the crash."
+            Write-Host ""
+            Write-Host "The issue must be in something else rmarkdown does."
+          }
+
+  test-rmarkdown-onload-only:
+    name: "Test 2: rmarkdown .onLoad behavior"
+    runs-on: windows-11-arm
+    outputs:
+      exit_code: ${{ steps.test.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install knitr
+        shell: pwsh
+        run: |
+          Rscript -e "if (!require('knitr', quietly = TRUE)) install.packages('knitr', repos = 'https://cloud.r-project.org')"
+
+      - name: Run test-rmarkdown-onload-only.R
+        id: test
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "Running test-rmarkdown-onload-only.R..."
+          Write-Host ""
+          $output = Rscript test-rmarkdown-onload-only.R 2>&1
+          $exitCode = $LASTEXITCODE
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+
+          # Save exit code for summary
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
+          if ($exitCode -eq -1073741569) {
+            Write-Host "Detected STATUS_NOT_SUPPORTED crash"
+          }
+
+      - name: Analyze result
+        shell: pwsh
+        run: |
+          $exitCode = '${{ steps.test.outputs.exit_code }}'
+          Write-Host "Test exit code: $exitCode"
+          Write-Host ""
+          if ($exitCode -eq '-1073741569') {
+            Write-Host "✅ HYPOTHESIS CONFIRMED"
+            Write-Host "Reproducing rmarkdown's .onLoad behavior causes the crash."
+            Write-Host ""
+            Write-Host "The issue is in the combination of:"
+            Write-Host "  - Creating stack (.render_context)"
+            Write-Host "  - Loading knitr"
+            Write-Host "  - Registering persistent hook"
+          } elseif ($exitCode -ne '0') {
+            Write-Host "⚠️ Test failed with different error (exit $exitCode)"
+          } else {
+            Write-Host "❌ HYPOTHESIS REJECTED"
+            Write-Host "Reproducing .onLoad behavior does NOT cause the crash."
+            Write-Host ""
+            Write-Host "Something else in rmarkdown package loading is the issue."
+          }
+
+  summary:
+    name: "Confirmation Test Summary"
+    runs-on: ubuntu-latest
+    needs: [test-sethook-only, test-rmarkdown-onload-only]
+    if: always()
+    steps:
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## setHook Root Cause Confirmation"
+          echo ""
+          echo "| Test | Exit Code | Status |"
+          echo "|------|-----------|--------|"
+
+          # Test 1: setHook only
+          test1_exit="${{ needs.test-sethook-only.outputs.exit_code }}"
+          if [ "$test1_exit" == "-1073741569" ]; then
+            test1_status="❌ CRASHED"
+          elif [ "$test1_exit" == "0" ]; then
+            test1_status="✅ PASSED"
+          else
+            test1_status="⚠️ ERROR ($test1_exit)"
+          fi
+          echo "| setHook() only | $test1_exit | $test1_status |"
+
+          # Test 2: rmarkdown .onLoad
+          test2_exit="${{ needs.test-rmarkdown-onload-only.outputs.exit_code }}"
+          if [ "$test2_exit" == "-1073741569" ]; then
+            test2_status="❌ CRASHED"
+          elif [ "$test2_exit" == "0" ]; then
+            test2_status="✅ PASSED"
+          else
+            test2_status="⚠️ ERROR ($test2_exit)"
+          fi
+          echo "| rmarkdown .onLoad | $test2_exit | $test2_status |"
+
+          echo ""
+          echo "### Conclusion"
+          echo ""
+
+          # Both crash
+          if [ "$test1_exit" == "-1073741569" ] && [ "$test2_exit" == "-1073741569" ]; then
+            echo "✅ **ROOT CAUSE DEFINITIVELY CONFIRMED**"
+            echo ""
+            echo "**Both tests crashed with STATUS_NOT_SUPPORTED (-1073741569)**"
+            echo ""
+            echo "Evidence:"
+            echo "- ❌ setHook(packageEvent(...)) alone causes crash"
+            echo "- ❌ Complete .onLoad reproduction causes crash"
+            echo ""
+            echo "**Root cause**: R's hook registration/cleanup mechanism for packageEvent"
+            echo "hooks uses Windows APIs that return STATUS_NOT_SUPPORTED under WOW64 emulation."
+            echo ""
+            echo "**Location in rmarkdown**: R/zzz.R:1-9 (.onLoad function)"
+            echo "**Mechanism**: setHook(packageEvent(\"knitr\", \"onLoad\"), ...)"
+            echo ""
+            echo "**Solution**: This is an R core issue with WOW64 compatibility."
+            echo "Users must use native R ARM64 on Windows ARM."
+
+          # Only .onLoad crashes
+          elif [ "$test1_exit" == "0" ] && [ "$test2_exit" == "-1073741569" ]; then
+            echo "✅ **ROOT CAUSE PARTIALLY CONFIRMED**"
+            echo ""
+            echo "Evidence:"
+            echo "- ✅ setHook(packageEvent(...)) alone works fine"
+            echo "- ❌ Complete .onLoad reproduction crashes"
+            echo ""
+            echo "**Root cause**: The combination of stack creation + knitr loading + hook registration"
+            echo "in rmarkdown's .onLoad causes the crash, not the hook mechanism alone."
+            echo ""
+            echo "**Location**: R/zzz.R:1-9"
+
+          # Only setHook crashes
+          elif [ "$test1_exit" == "-1073741569" ] && [ "$test2_exit" == "0" ]; then
+            echo "⚠️ **UNEXPECTED RESULT**"
+            echo ""
+            echo "Evidence:"
+            echo "- ❌ setHook(packageEvent(...)) alone crashes"
+            echo "- ✅ Complete .onLoad reproduction works"
+            echo ""
+            echo "This is unexpected - need to investigate why the simpler test crashes"
+            echo "but the complete reproduction doesn't."
+
+          # Both pass
+          elif [ "$test1_exit" == "0" ] && [ "$test2_exit" == "0" ]; then
+            echo "❌ **HYPOTHESIS REJECTED**"
+            echo ""
+            echo "Evidence:"
+            echo "- ✅ setHook(packageEvent(...)) alone works fine"
+            echo "- ✅ Complete .onLoad reproduction works fine"
+            echo "- ❌ BUT library(rmarkdown) crashes"
+            echo ""
+            echo "**Critical finding**: Something else in rmarkdown package loading"
+            echo "causes the crash, NOT the .onLoad function."
+            echo ""
+            echo "**Next investigation**: What happens during rmarkdown namespace loading"
+            echo "that doesn't happen in our reproduction?"
+
+          else
+            echo "⚠️ **ERROR OR MIXED RESULTS**"
+            echo ""
+            echo "Exit codes:"
+            echo "- Test 1 (setHook only): $test1_exit"
+            echo "- Test 2 (rmarkdown .onLoad): $test2_exit"
+            echo ""
+            echo "Review individual test logs for details."
+          fi
