@@ -15,20 +15,24 @@ jobs:
   test-bslib-only:
     name: "Test 1: bslib in isolation"
     runs-on: windows-11-arm
+    outputs:
+      exit_code: ${{ steps.test.outputs.exit_code }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Verify R x64 (default on runner)
         shell: pwsh
         run: |
-          $rscript = Get-Command Rscript | Select-Object -ExpandProperty Definition
-          Write-Host "Rscript path: $rscript"
-          & $rscript -e "cat('R version:', R.version[['version.string']], '\n')"
-          & $rscript -e "cat('Platform:', R.version[['platform']], '\n')"
-          if (R.version[['platform']] -notmatch 'x86_64') {
-            Write-Error "Expected x86_64 platform, got: $($R.version[['platform']])"
+          Write-Host "Verifying R x64 platform..."
+          $platform = Rscript -e "cat(R.version[['platform']])"
+          Write-Host "Platform: $platform"
+          $version = Rscript -e "cat(R.version[['version.string']])"
+          Write-Host "R version: $version"
+          if ($platform -notmatch 'x86_64') {
+            Write-Error "Expected x86_64 platform, got: $platform"
             exit 1
           }
+          Write-Host "✓ Confirmed R x64 on Windows ARM"
 
       - name: Install bslib
         shell: pwsh
@@ -42,23 +46,29 @@ jobs:
         run: |
           Write-Host "Running test-bslib-only.R..."
           Write-Host ""
-          $result = Rscript test-bslib-only.R
+          $output = Rscript test-bslib-only.R 2>&1
           $exitCode = $LASTEXITCODE
           Write-Host "Output:"
-          Write-Host $result
+          Write-Host $output
           Write-Host ""
           Write-Host "Exit code: $exitCode"
-          exit $exitCode
+
+          # Save exit code for summary
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
+          if ($exitCode -eq -1073741569) {
+            Write-Host "Detected STATUS_NOT_SUPPORTED crash"
+          }
 
       - name: Analyze result
         shell: pwsh
         run: |
-          $exitCode = '${{ steps.test.outcome }}'
-          Write-Host "Test outcome: $exitCode"
+          $exitCode = '${{ steps.test.outputs.exit_code }}'
+          Write-Host "Test exit code: $exitCode"
           Write-Host ""
-          if ($exitCode -eq 'failure') {
-            Write-Host "❌ bslib test FAILED"
-            Write-Host "This suggests bslib IS the root cause of the crash."
+          if ($exitCode -eq '-1073741569' -or $exitCode -ne '0') {
+            Write-Host "❌ bslib test FAILED (exit code: $exitCode)"
+            Write-Host "This confirms bslib alone causes the crash."
           } else {
             Write-Host "✅ bslib test PASSED"
             Write-Host "This suggests bslib is NOT the root cause."
@@ -111,6 +121,8 @@ jobs:
   test-rmarkdown-minimal:
     name: "Test 3: minimal rmarkdown"
     runs-on: windows-11-arm
+    outputs:
+      exit_code: ${{ steps.test.outputs.exit_code }}
     steps:
       - uses: actions/checkout@v4
 
@@ -126,27 +138,31 @@ jobs:
         run: |
           Write-Host "Running test-rmarkdown-minimal.R..."
           Write-Host ""
-          $result = Rscript test-rmarkdown-minimal.R
+          $output = Rscript test-rmarkdown-minimal.R 2>&1
           $exitCode = $LASTEXITCODE
           Write-Host "Output:"
-          Write-Host $result
+          Write-Host $output
           Write-Host ""
           Write-Host "Exit code: $exitCode"
+
+          # Save exit code for summary
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
           if ($exitCode -eq -1073741569) {
             Write-Host "Detected STATUS_NOT_SUPPORTED crash"
           }
-          exit $exitCode
 
       - name: Analyze result
         shell: pwsh
         run: |
-          $exitCode = '${{ steps.test.outcome }}'
-          Write-Host "Test outcome: $exitCode"
+          $exitCode = '${{ steps.test.outputs.exit_code }}'
+          Write-Host "Test exit code: $exitCode"
           Write-Host ""
-          if ($exitCode -eq 'failure') {
-            Write-Host "❌ rmarkdown minimal test FAILED"
+          if ($exitCode -eq '-1073741569' -or $exitCode -ne '0') {
+            Write-Host "❌ rmarkdown minimal test FAILED (exit code: $exitCode)"
             Write-Host "This confirms rmarkdown loading triggers the crash."
-            Write-Host "Since rmarkdown loads bslib, this supports the bslib hypothesis."
+            Write-Host ""
+            Write-Host "Check output for which packages were loaded."
           } else {
             Write-Host "✅ rmarkdown minimal test PASSED"
             Write-Host "This is unexpected - rmarkdown should crash."
@@ -163,34 +179,73 @@ jobs:
         run: |
           echo "## bslib Hypothesis Test Results"
           echo ""
-          echo "| Test | Result | Interpretation |"
-          echo "|------|--------|----------------|"
-          echo "| bslib only | ${{ needs.test-bslib-only.result }} | $(if [ '${{ needs.test-bslib-only.result }}' == 'failure' ]; then echo '❌ bslib alone crashes'; else echo '✅ bslib alone works'; fi) |"
-          echo "| bslib deps | ${{ needs.test-bslib-deps.result }} | $(if [ '${{ needs.test-bslib-deps.result }}' == 'failure' ]; then echo '❌ Unexpected failure'; else echo '✅ Deps work separately'; fi) |"
-          echo "| rmarkdown minimal | ${{ needs.test-rmarkdown-minimal.result }} | $(if [ '${{ needs.test-rmarkdown-minimal.result }}' == 'failure' ]; then echo '❌ Loading crashes'; else echo '✅ Loading works'; fi) |"
+          echo "| Test | Exit Code | Status |"
+          echo "|------|-----------|--------|"
+
+          # Test 1: bslib only
+          test1_exit="${{ needs.test-bslib-only.outputs.exit_code }}"
+          if [ "$test1_exit" == "-1073741569" ] || [ "$test1_exit" != "0" ]; then
+            test1_status="❌ CRASHED"
+          else
+            test1_status="✅ PASSED"
+          fi
+          echo "| bslib only | $test1_exit | $test1_status |"
+
+          # Test 2: bslib deps (always uses conclusion since it just loads packages)
+          if [ '${{ needs.test-bslib-deps.result }}' == 'success' ]; then
+            test2_status="✅ PASSED"
+            test2_exit="0"
+          else
+            test2_status="❌ FAILED"
+            test2_exit="non-zero"
+          fi
+          echo "| bslib deps | $test2_exit | $test2_status |"
+
+          # Test 3: rmarkdown minimal
+          test3_exit="${{ needs.test-rmarkdown-minimal.outputs.exit_code }}"
+          if [ "$test3_exit" == "-1073741569" ] || [ "$test3_exit" != "0" ]; then
+            test3_status="❌ CRASHED"
+          else
+            test3_status="✅ PASSED"
+          fi
+          echo "| rmarkdown minimal | $test3_exit | $test3_status |"
+
           echo ""
           echo "### Hypothesis Validation"
           echo ""
-          if [ '${{ needs.test-bslib-only.result }}' == 'failure' ] && \
+
+          # Check if bslib hypothesis is confirmed
+          if [ "$test1_exit" == "-1073741569" ] && \
              [ '${{ needs.test-bslib-deps.result }}' == 'success' ] && \
-             [ '${{ needs.test-rmarkdown-minimal.result }}' == 'failure' ]; then
+             [ "$test3_exit" == "-1073741569" ]; then
             echo "✅ **bslib hypothesis CONFIRMED**"
             echo ""
             echo "Evidence:"
-            echo "- ❌ bslib alone crashes"
+            echo "- ❌ bslib alone crashes (exit -1073741569)"
             echo "- ✅ bslib dependencies work separately"
-            echo "- ❌ rmarkdown (which loads bslib) crashes"
+            echo "- ❌ rmarkdown (which loads bslib) crashes (exit -1073741569)"
             echo ""
-            echo "Conclusion: bslib's global state management is the root cause."
-          elif [ '${{ needs.test-bslib-only.result }}' == 'success' ]; then
+            echo "**Conclusion**: bslib's global state management is the root cause."
+          elif [ "$test1_exit" == "0" ] && [ "$test3_exit" == "-1073741569" ]; then
             echo "❌ **bslib hypothesis REJECTED**"
             echo ""
-            echo "bslib alone works fine. Need to investigate alternative hypotheses:"
+            echo "**Evidence:**"
+            echo "- ✅ bslib alone works fine"
+            echo "- ❌ rmarkdown still crashes WITHOUT bslib being loaded"
+            echo ""
+            echo "**Critical finding**: The crash occurs even when bslib is not loaded."
+            echo ""
+            echo "**Next steps**: Investigate alternative hypotheses:"
+            echo "- setHook() persistence in rmarkdown's .onLoad"
+            echo "- Combination of packages (htmltools + xfun + evaluate + knitr)"
             echo "- Temporary file cleanup (clean_tmpfiles)"
-            echo "- Hook persistence (setHook)"
             echo "- Namespace binding manipulation (unlockBinding)"
           else
-            echo "⚠️ **Inconclusive results**"
+            echo "⚠️ **Inconclusive or mixed results**"
             echo ""
-            echo "Test outcomes don't match expected patterns. Review logs for details."
+            echo "Exit codes:"
+            echo "- Test 1 (bslib only): $test1_exit"
+            echo "- Test 3 (rmarkdown): $test3_exit"
+            echo ""
+            echo "Review individual test logs for details."
           fi
