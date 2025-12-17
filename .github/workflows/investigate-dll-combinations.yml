@@ -1,0 +1,108 @@
+name: Investigate DLL Combinations
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-combinations:
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        combination:
+          - { name: "cli-htmltools", script: "test-combo-cli-htmltools.R", description: "CLI console + HTML generation", likelihood: "medium" }
+          - { name: "rlang-htmltools", script: "test-combo-rlang-htmltools.R", description: "R internals + HTML generation", likelihood: "high" }
+          - { name: "fastmap-htmltools", script: "test-combo-fastmap-htmltools.R", description: "Fast maps + HTML generation", likelihood: "low" }
+          - { name: "digest-rlang", script: "test-combo-digest-rlang.R", description: "Hashing + R internals", likelihood: "low" }
+          - { name: "three-suspects", script: "test-combo-three-suspects.R", description: "cli + htmltools + rlang", likelihood: "high" }
+          - { name: "all-five", script: "test-combo-all-five.R", description: "All 5 suspect DLLs", likelihood: "very-high" }
+
+    name: "Combo: ${{ matrix.combination.name }} (${{ matrix.combination.likelihood }})"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install required packages
+        run: |
+          Write-Host "Installing packages for combination test..."
+          Rscript -e "install.packages(c('cli', 'digest', 'fastmap', 'htmltools', 'rlang'), repos='https://cloud.r-project.org')"
+
+      - name: "Test: ${{ matrix.combination.description }}"
+        id: test-combination
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Testing: ${{ matrix.combination.name }}"
+          Write-Host "Description: ${{ matrix.combination.description }}"
+          Write-Host "Crash likelihood: ${{ matrix.combination.likelihood }}"
+          Write-Host "========================================="
+          Write-Host ""
+
+          $output = Rscript ${{ matrix.combination.script }} 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ ${{ matrix.combination.name }} works (no crash)"
+            exit 0
+          } elseif ($exitCode -eq -1073741569) {
+            Write-Host "::error::❌ ${{ matrix.combination.name }} CRASHES with STATUS_NOT_SUPPORTED (exit: $exitCode)"
+            Write-Host "::error::🎯 FOUND IT! This combination reproduces the crash!"
+            exit 1
+          } else {
+            Write-Host "::warning::⚠️ ${{ matrix.combination.name }} failed with unexpected exit code: $exitCode"
+            exit 1
+          }
+
+  summary:
+    runs-on: windows-11-arm
+    needs: test-combinations
+    if: always()
+    steps:
+      - name: Investigation Summary
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "DLL COMBINATION INVESTIGATION SUMMARY"
+          Write-Host "========================================="
+          Write-Host ""
+          Write-Host "This workflow tests combinations of the 5 DLLs that are:"
+          Write-Host "  ✅ Loaded by rmarkdown"
+          Write-Host "  ❌ NOT loaded by knitr"
+          Write-Host "  ✅ Work fine individually"
+          Write-Host ""
+          Write-Host "The 5 suspect DLLs:"
+          Write-Host "  1. cli.dll - Console/terminal interactions"
+          Write-Host "  2. digest.dll - Cryptographic hashing"
+          Write-Host "  3. fastmap.dll - Fast hash maps"
+          Write-Host "  4. htmltools.dll - HTML generation (native code)"
+          Write-Host "  5. rlang.dll - Low-level R internals"
+          Write-Host ""
+          Write-Host "Tested combinations:"
+          Write-Host "  • Pairs: cli+htmltools, rlang+htmltools, fastmap+htmltools, digest+rlang"
+          Write-Host "  • Triplet: cli+htmltools+rlang (most complex)"
+          Write-Host "  • All 5: Complete set (mimics rmarkdown's loading)"
+          Write-Host ""
+          Write-Host "Expected results:"
+          Write-Host "  - If 'all-five' crashes but pairs don't → Cleanup ordering issue"
+          Write-Host "  - If specific pair crashes → Direct incompatibility between those 2"
+          Write-Host "  - If triplet crashes but pairs don't → 3-way interaction"
+          Write-Host "  - If nothing crashes → Issue is in rmarkdown's code, not DLLs"
+          Write-Host ""
+          Write-Host "Review test results above to identify the crashing combination."
+          Write-Host ""
+          Write-Host "========================================="
