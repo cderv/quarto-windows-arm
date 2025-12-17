@@ -13,6 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         dependency:
+          # Previously tested dependencies
           - { name: "jsonlite", suspect: "low", reason: "Pure R/C JSON parsing" }
           - { name: "tinytex", suspect: "high", reason: "Pandoc integration, external tool management" }
           - { name: "htmltools", suspect: "high", reason: "Native code for HTML generation" }
@@ -21,6 +22,23 @@ jobs:
           - { name: "yaml", suspect: "low", reason: "YAML parsing only" }
           - { name: "jquerylib", suspect: "low", reason: "JavaScript assets, no native code" }
           - { name: "evaluate", suspect: "medium", reason: "Code evaluation, output capture" }
+          - { name: "cli", suspect: "medium", reason: "Console/terminal interactions" }
+          - { name: "digest", suspect: "low", reason: "Cryptographic hashing" }
+          - { name: "fastmap", suspect: "low", reason: "Fast hash maps" }
+          - { name: "rlang", suspect: "medium", reason: "Low-level R internals" }
+          # Complete dependency tree coverage (remaining 12)
+          - { name: "base64enc", suspect: "low", reason: "Binary encoding" }
+          - { name: "cachem", suspect: "low", reason: "Caching" }
+          - { name: "lifecycle", suspect: "low", reason: "Lifecycle management" }
+          - { name: "memoise", suspect: "low", reason: "Memoization" }
+          - { name: "mime", suspect: "low", reason: "MIME types" }
+          - { name: "sass", suspect: "high", reason: "Native Sass compiler for CSS" }
+          - { name: "fs", suspect: "high", reason: "File system operations with native code" }
+          - { name: "r6", suspect: "low", reason: "Pure R OOP system" }
+          - { name: "rappdirs", suspect: "low", reason: "App directory paths" }
+          - { name: "fontawesome", suspect: "medium", reason: "Font Awesome icons, direct rmarkdown dep" }
+          - { name: "highr", suspect: "low", reason: "Syntax highlighting, pure R" }
+          - { name: "glue", suspect: "low", reason: "String interpolation" }
 
     name: "Dependency: ${{ matrix.dependency.name }} (suspect: ${{ matrix.dependency.suspect }})"
 
@@ -81,13 +99,14 @@ jobs:
           Write-Host "DEPENDENCY INVESTIGATION SUMMARY"
           Write-Host "========================================="
           Write-Host ""
-          Write-Host "This workflow tests rmarkdown's major dependencies individually"
+          Write-Host "This workflow tests ALL rmarkdown dependencies individually (24 packages)"
           Write-Host "to identify which package(s) cause the STATUS_NOT_SUPPORTED crash"
           Write-Host "on R x64 Windows ARM."
           Write-Host ""
-          Write-Host "High suspects: tinytex, htmltools, bslib"
-          Write-Host "Medium suspects: xfun, evaluate"
-          Write-Host "Low suspects: jsonlite, yaml, jquerylib"
+          Write-Host "High suspects: tinytex, htmltools, bslib, sass, fs"
+          Write-Host "Medium suspects: xfun, evaluate, fontawesome"
+          Write-Host "Low suspects: jsonlite, yaml, jquerylib, base64enc, cachem,"
+          Write-Host "              lifecycle, memoise, mime, r6, rappdirs, highr, glue"
           Write-Host ""
           Write-Host "Review the test results above to identify:"
           Write-Host "  1. Which packages crash (exit -1073741569)"
