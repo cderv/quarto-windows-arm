@@ -1,10 +1,10 @@
 # Next Investigation: rmarkdown Package Failure on R x64 Windows ARM
 
-## Investigation Status: Phase 1-4 Complete ✅
+## Investigation Status: Phase 1-5 Complete ✅
 
 **Last Updated:** December 17, 2025
 
-We've completed systematic investigation including source code analysis. See **INVESTIGATION-RESULTS.md** for complete findings.
+We've completed systematic investigation including source code analysis and empirical bslib hypothesis testing. See **INVESTIGATION-RESULTS.md** for complete findings.
 
 ## What We've Completed
 
@@ -48,125 +48,115 @@ Tested 6 combinations including all 5 suspect DLLs loaded simultaneously.
 - ✅ bslib global state management identified as primary suspect (80% likelihood)
 - ✅ Three alternative hypotheses documented (temp files, hooks, bindings)
 
-## 🎯 Critical Discovery - Updated
+### ✅ Phase 5: bslib Hypothesis Testing (HYPOTHESIS REJECTED)
 
-**The crash is in implicit cleanup of rmarkdown's dependencies, specifically bslib.**
+**Result:** bslib hypothesis DEFINITIVELY REJECTED
 
-**Previous hypothesis (REJECTED):** Pandoc management
+**Test workflow:** `.github/workflows/test-bslib-hypothesis.yml`
+
+**Test results:**
+- Test 1 (bslib only): ✅ PASSED (exit 0)
+- Test 2 (bslib deps): ✅ PASSED (exit 0)
+- Test 3 (rmarkdown minimal): ❌ CRASHED (exit -1073741569)
+
+**Critical finding:** Test 3 output shows **bslib was NOT loaded** when crash occurred:
+```
+✗ bslib is NOT loaded (unexpected!)
+
+Packages loaded when crash occurred:
+  ✓ htmltools
+  ✓ knitr
+  ✓ xfun      <-- ONLY package with compiled C code (DLL)
+  ✓ evaluate
+  ✗ bslib     <-- NOT loaded
+```
+
+**Conclusion:** The crash occurs even when bslib is not loaded. bslib global state management is NOT the root cause.
+
+## 🎯 Critical Discovery - Phase 5 Results
+
+**The crash is in implicit cleanup of minimal rmarkdown loading.**
+
+### Rejected Hypotheses
+
+**Hypothesis 1 (REJECTED):** Pandoc management
 - Source analysis proved Pandoc is lazy-loaded
 - `find_pandoc()` NOT called during package load
 - Simple `library(rmarkdown)` crashes without touching Pandoc code
 
-**Current hypothesis (VALIDATED BY ANALYSIS):** bslib global state management
+**Hypothesis 2 (REJECTED):** bslib global state management
+- Empirical testing showed bslib alone works fine (exit 0)
+- Test 3 proved rmarkdown crashes WITHOUT bslib being loaded
+- bslib is NOT the root cause
 
-**Why bslib is the smoking gun:**
-1. **Differential behavior explained:** rmarkdown imports bslib, knitr does not
-2. **Global state operations:** `bslib::bs_global_set()` modifies package-global theme state
-3. **Automatic cleanup:** Even without `.onUnload`, R cleans up bslib's internal state during termination
-4. **WOW64 incompatibility:** bslib cleanup likely uses Windows APIs that fail under x64 emulation
+### Current Finding: Minimal Package Combination Causes Crash
+
+**What WAS loaded when crash occurred:**
+- ✓ htmltools (HTML tag builder)
+- ✓ knitr (R code execution engine)
+- ✓ **xfun** (utility functions **with compiled C code DLL**)
+- ✓ evaluate (code evaluation)
+
+**Key observation:** xfun is the ONLY package with compiled native code (DLL) that was loaded.
+
+**Why this matters:**
+1. **Lazy loading behavior:** rmarkdown's minimal `.onLoad` doesn't force full dependency loading
+2. **xfun has C code:** Only loaded package with native DLL (`xfun.dll`)
+3. **DLL cleanup:** xfun's DLL cleanup during R termination may use Windows APIs incompatible with WOW64
+4. **Differential behavior:** knitr also uses xfun, but knitr works fine (needs investigation why)
 5. **Crash timing:** Happens during R termination after script completes (cleanup phase)
 
-## Phase 5: bslib Hypothesis Testing (In Progress)
+## Next Investigation Steps (Optional)
 
-To confirm bslib is the root cause, we need empirical validation through targeted tests.
+The bslib hypothesis has been rejected. Further investigation would focus on:
 
-### Test Scripts to Create
+### Hypothesis 3: xfun DLL Cleanup
 
-#### Test 1: `test-bslib-only.R`
+**Approach:** Test if xfun's compiled C code cleanup is the issue
 
-**Goal:** Isolate bslib - does it alone cause the crash?
-
+**Test idea:**
 ```r
-# Load bslib and use global state functions
-cat("Loading bslib package...\n")
-library(bslib)
-
-cat("Getting global theme...\n")
-old_theme <- bs_global_get()
-cat("  Old theme:", class(old_theme), "\n")
-
-cat("Setting new global theme...\n")
-new_theme <- bs_theme(bg = "#000", fg = "#FFF")
-bs_global_set(new_theme)
-cat("  New theme set\n")
-
-cat("SUCCESS: Script completed\n")
-# Exit - if crash happens, it's during termination
+# test-xfun-only.R
+library(xfun)
+# Use some xfun functions to ensure DLL is loaded
+xfun::base64_encode("test")
+# Exit - does xfun alone crash?
 ```
 
-**Expected:** ❌ FAIL if bslib is the root cause
+**Questions to answer:**
+1. Does xfun alone crash on Windows ARM x64?
+2. Why does knitr work when it also loads xfun?
+3. Is it the COMBINATION of xfun + htmltools + evaluate + rmarkdown's `.onLoad`?
 
-#### Test 2: `test-bslib-deps.R`
+### Hypothesis 4: setHook() Persistence
 
-**Goal:** Test bslib's dependencies separately
-
+**From rmarkdown's `.onLoad`:**
 ```r
-# Test each bslib dependency
-cat("Loading bslib dependencies individually...\n")
+setHook(packageEvent("knitr", "onLoad"), ...)
+```
 
-cat("Loading sass...\n")
-library(sass)
+**Test idea:** Check if the persistent hook causes cleanup issues under WOW64
 
-cat("Loading jquerylib...\n")
-library(jquerylib)
+### Hypothesis 5: Package Combination
 
-cat("Loading htmltools...\n")
+**Test the specific combination:**
+```r
+# test-minimal-combo.R
 library(htmltools)
-
-cat("Loading rlang...\n")
-library(rlang)
-
-cat("Loading fastmap...\n")
-library(fastmap)
-
-cat("SUCCESS: All bslib deps loaded\n")
+library(evaluate)
+library(knitr)
+library(xfun)
+# Does this combination crash without rmarkdown?
 ```
 
-**Expected:** ✅ PASS (deps work individually, as proven in Phase 1)
+### Why Further Investigation May Not Be Needed
 
-#### Test 3: `test-rmarkdown-minimal.R`
+The current findings are sufficient for:
+1. **Documenting the issue for rmarkdown maintainers** ✅
+2. **Confirming Quarto PR #13790's approach is correct** ✅ (detect and warn)
+3. **Understanding why R ARM64 is required on Windows ARM** ✅
 
-**Goal:** Load rmarkdown without calling any functions
-
-```r
-# Just load rmarkdown, don't use any functions
-cat("Loading rmarkdown package...\n")
-library(rmarkdown)
-
-cat("Checking what was loaded:\n")
-cat("  .render_context exists:", exists(".render_context", envir = asNamespace("rmarkdown")), "\n")
-
-# Check if bslib global state was touched
-if (requireNamespace("bslib", quietly = TRUE)) {
-  theme <- bslib::bs_global_get()
-  cat("  bslib global theme:", class(theme), "\n")
-}
-
-cat("SUCCESS: rmarkdown loaded\n")
-# Exit - crash during termination
-```
-
-**Expected:** ❌ FAIL (rmarkdown loads bslib automatically)
-
-### GitHub Actions Workflow
-
-Create `.github/workflows/test-bslib-hypothesis.yml` to run these tests on `windows-11-arm` with R x64.
-
-**Expected pattern if bslib hypothesis confirmed:**
-- ❌ `test-bslib-only.R` - FAILS
-- ✅ `test-bslib-deps.R` - PASSES
-- ❌ `test-rmarkdown-minimal.R` - FAILS
-
-This pattern would prove bslib is the root cause.
-
-### Alternative Hypotheses (if bslib rejected)
-
-If all three tests pass, investigate:
-1. Temporary file cleanup (`clean_tmpfiles()` with `unlink()`)
-2. Hook persistence (`setHook(packageEvent(...))`)
-3. Namespace binding manipulation (`unlockBinding()`)
-
-See **[RMARKDOWN-SOURCE-ANALYSIS.md](RMARKDOWN-SOURCE-ANALYSIS.md)** for detailed analysis of each hypothesis.
+**Solution remains:** Use native R ARM64 on Windows ARM.
 
 ## Evidence for Bug Report
 
@@ -189,33 +179,51 @@ See **INVESTIGATION-RESULTS.md** for complete documentation suitable for rmarkdo
 - [x] Phase 2: DLL analysis (baseline, knitr, rmarkdown comparison)
 - [x] Phase 3: DLL combination testing (6 combinations)
 - [x] Phase 4: rmarkdown source code analysis
-- [x] Root cause hypothesis updated (bslib global state, NOT Pandoc)
+- [x] Phase 5: bslib hypothesis testing (REJECTED)
+  - [x] Created test scripts (test-bslib-only.R, test-bslib-deps.R, test-rmarkdown-minimal.R)
+  - [x] Created GitHub Actions workflow (.github/workflows/test-bslib-hypothesis.yml)
+  - [x] Ran empirical tests on windows-11-arm
+  - [x] Analyzed results: bslib hypothesis definitively rejected
 - [x] Comprehensive documentation created (RMARKDOWN-SOURCE-ANALYSIS.md)
 
-### In Progress 🔄
-- [ ] Phase 5: Create bslib test scripts
-- [ ] Phase 5: Create GitHub Actions workflow
-- [ ] Phase 5: Run empirical tests on windows-11-arm
-- [ ] Phase 5: Analyze results and confirm/reject hypothesis
+### Rejected Hypotheses ❌
+- ~~Pandoc management~~ (Pandoc is lazy-loaded, not the issue)
+- ~~bslib global state management~~ (empirical testing proved bslib NOT loaded when crash occurs)
+- ~~More dependency combinations~~ (all dependencies work individually)
+- ~~Deeper DLL investigation~~ (all DLLs work together in isolation)
 
-### Not Needed ❌
-- ~~Pandoc detection testing~~ (Pandoc is lazy-loaded, not the issue)
-- ~~More dependency combinations~~ (all dependencies work)
-- ~~Deeper DLL investigation~~ (all DLLs work together)
+### Optional Future Investigation 🔮
+- Hypothesis 3: xfun DLL cleanup (xfun is only loaded package with compiled C code)
+- Hypothesis 4: setHook() persistence from rmarkdown's `.onLoad`
+- Hypothesis 5: Specific combination of htmltools + knitr + xfun + evaluate + rmarkdown hook
 
 ## Conclusion
 
-**The investigation is sufficient for documentation.**
+**The investigation has completed 5 phases and rejected 2 major hypotheses.**
 
-We've proven:
-1. The crash is NOT in rmarkdown's dependencies
-2. The crash IS in rmarkdown's own initialization/cleanup code
-3. The likely culprit is Pandoc management operations
+### What We've Proven:
+1. ✅ The crash is NOT in rmarkdown's individual dependencies (Phase 1)
+2. ✅ The crash is NOT in the DLLs themselves (Phase 3)
+3. ✅ The crash is NOT from Pandoc management (Phase 4 - Pandoc is lazy-loaded)
+4. ✅ The crash is NOT from bslib global state (Phase 5 - bslib not even loaded when crash occurs)
 
-Further testing would only refine the exact line of code that fails, which isn't necessary for:
-- Documenting the issue for rmarkdown maintainers
-- Confirming Quarto PR #13790's approach is correct (detect and warn)
-- Understanding why R ARM64 is required on Windows ARM
+### What We Know:
+- Crash happens during R process termination (after script completes successfully)
+- Exit code: -1073741569 (STATUS_NOT_SUPPORTED) - Windows WOW64 incompatibility
+- Minimal packages loaded when crash occurs: htmltools + knitr + **xfun** + evaluate
+- xfun is the ONLY package with compiled C code (DLL) that was loaded
+- rmarkdown's `.onLoad` registers a persistent hook via `setHook(packageEvent("knitr", "onLoad"), ...)`
+
+### Remaining Investigation (Optional):
+Further testing would determine whether the issue is:
+- xfun's DLL cleanup operations
+- The persistent hook registered by rmarkdown
+- The specific combination of packages + hook
+
+However, this level of detail is **NOT necessary** for:
+- Documenting the issue for rmarkdown maintainers ✅
+- Confirming Quarto PR #13790's approach is correct (detect and warn) ✅
+- Understanding why R ARM64 is required on Windows ARM ✅
 
 **Solution remains:** Use native R ARM64 on Windows ARM.
 
