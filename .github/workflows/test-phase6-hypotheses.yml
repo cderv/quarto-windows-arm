@@ -1,0 +1,277 @@
+name: Phase 6 - Test Remaining Hypotheses
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'test-xfun-only.R'
+      - 'test-minimal-combo.R'
+      - 'test-knitr-only.R'
+      - '.github/workflows/test-phase6-hypotheses.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-xfun-only:
+    name: "Test 1: xfun in isolation"
+    runs-on: windows-11-arm
+    outputs:
+      exit_code: ${{ steps.test.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify R x64 (default on runner)
+        shell: pwsh
+        run: |
+          Write-Host "Verifying R x64 platform..."
+          $platform = Rscript -e "cat(R.version[['platform']])"
+          Write-Host "Platform: $platform"
+          $version = Rscript -e "cat(R.version[['version.string']])"
+          Write-Host "R version: $version"
+          if ($platform -notmatch 'x86_64') {
+            Write-Error "Expected x86_64 platform, got: $platform"
+            exit 1
+          }
+          Write-Host "✓ Confirmed R x64 on Windows ARM"
+
+      - name: Install xfun
+        shell: pwsh
+        run: |
+          Rscript -e "if (!require('xfun', quietly = TRUE)) install.packages('xfun', repos = 'https://cloud.r-project.org')"
+
+      - name: Run test-xfun-only.R
+        id: test
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "Running test-xfun-only.R..."
+          Write-Host ""
+          $output = Rscript test-xfun-only.R 2>&1
+          $exitCode = $LASTEXITCODE
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+
+          # Save exit code for summary
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
+          if ($exitCode -eq -1073741569) {
+            Write-Host "Detected STATUS_NOT_SUPPORTED crash"
+          }
+
+      - name: Analyze result
+        shell: pwsh
+        run: |
+          $exitCode = '${{ steps.test.outputs.exit_code }}'
+          Write-Host "Test exit code: $exitCode"
+          Write-Host ""
+          if ($exitCode -eq '-1073741569' -or $exitCode -ne '0') {
+            Write-Host "❌ xfun test FAILED (exit code: $exitCode)"
+            Write-Host "This suggests xfun's DLL cleanup is the root cause."
+          } else {
+            Write-Host "✅ xfun test PASSED"
+            Write-Host "xfun alone does NOT cause the crash."
+          }
+
+  test-minimal-combo:
+    name: "Test 2: minimal package combination"
+    runs-on: windows-11-arm
+    outputs:
+      exit_code: ${{ steps.test.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packages
+        shell: pwsh
+        run: |
+          $packages = @('htmltools', 'knitr', 'xfun', 'evaluate')
+          foreach ($pkg in $packages) {
+            Write-Host "Installing $pkg..."
+            Rscript -e "if (!require('$pkg', quietly = TRUE)) install.packages('$pkg', repos = 'https://cloud.r-project.org')"
+          }
+
+      - name: Run test-minimal-combo.R
+        id: test
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "Running test-minimal-combo.R..."
+          Write-Host ""
+          $output = Rscript test-minimal-combo.R 2>&1
+          $exitCode = $LASTEXITCODE
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+
+          # Save exit code for summary
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
+          if ($exitCode -eq -1073741569) {
+            Write-Host "Detected STATUS_NOT_SUPPORTED crash"
+          }
+
+      - name: Analyze result
+        shell: pwsh
+        run: |
+          $exitCode = '${{ steps.test.outputs.exit_code }}'
+          Write-Host "Test exit code: $exitCode"
+          Write-Host ""
+          if ($exitCode -eq '-1073741569' -or $exitCode -ne '0') {
+            Write-Host "❌ minimal combo test FAILED (exit code: $exitCode)"
+            Write-Host "This suggests the package combination causes the crash."
+          } else {
+            Write-Host "✅ minimal combo test PASSED"
+            Write-Host "The package combination alone does NOT cause the crash."
+            Write-Host "The issue is likely in rmarkdown's .onLoad hook."
+          }
+
+  test-knitr-only:
+    name: "Test 3: knitr in isolation"
+    runs-on: windows-11-arm
+    outputs:
+      exit_code: ${{ steps.test.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install knitr
+        shell: pwsh
+        run: |
+          Rscript -e "if (!require('knitr', quietly = TRUE)) install.packages('knitr', repos = 'https://cloud.r-project.org')"
+
+      - name: Run test-knitr-only.R
+        id: test
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "Running test-knitr-only.R..."
+          Write-Host ""
+          $output = Rscript test-knitr-only.R 2>&1
+          $exitCode = $LASTEXITCODE
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+
+          # Save exit code for summary
+          echo "exit_code=$exitCode" >> $env:GITHUB_OUTPUT
+
+          if ($exitCode -eq -1073741569) {
+            Write-Host "Detected STATUS_NOT_SUPPORTED crash"
+          }
+
+      - name: Analyze result
+        shell: pwsh
+        run: |
+          $exitCode = '${{ steps.test.outputs.exit_code }}'
+          Write-Host "Test exit code: $exitCode"
+          Write-Host ""
+          if ($exitCode -eq '-1073741569' -or $exitCode -ne '0') {
+            Write-Host "❌ knitr test FAILED (exit code: $exitCode)"
+            Write-Host "This is unexpected - knitr is known to work."
+          } else {
+            Write-Host "✅ knitr test PASSED (expected)"
+            Write-Host "knitr + xfun work together without crashing."
+          }
+
+  summary:
+    name: "Phase 6 Results Summary"
+    runs-on: ubuntu-latest
+    needs: [test-xfun-only, test-minimal-combo, test-knitr-only]
+    if: always()
+    steps:
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## Phase 6: Remaining Hypotheses Test Results"
+          echo ""
+          echo "| Test | Exit Code | Status |"
+          echo "|------|-----------|--------|"
+
+          # Test 1: xfun only
+          test1_exit="${{ needs.test-xfun-only.outputs.exit_code }}"
+          if [ "$test1_exit" == "-1073741569" ] || [ "$test1_exit" != "0" ]; then
+            test1_status="❌ CRASHED"
+          else
+            test1_status="✅ PASSED"
+          fi
+          echo "| xfun only | $test1_exit | $test1_status |"
+
+          # Test 2: minimal combo
+          test2_exit="${{ needs.test-minimal-combo.outputs.exit_code }}"
+          if [ "$test2_exit" == "-1073741569" ] || [ "$test2_exit" != "0" ]; then
+            test2_status="❌ CRASHED"
+          else
+            test2_status="✅ PASSED"
+          fi
+          echo "| minimal combo | $test2_exit | $test2_status |"
+
+          # Test 3: knitr only
+          test3_exit="${{ needs.test-knitr-only.outputs.exit_code }}"
+          if [ "$test3_exit" == "-1073741569" ] || [ "$test3_exit" != "0" ]; then
+            test3_status="❌ CRASHED"
+          else
+            test3_status="✅ PASSED"
+          fi
+          echo "| knitr only | $test3_exit | $test3_status |"
+
+          echo ""
+          echo "### Analysis"
+          echo ""
+
+          # Scenario 1: xfun alone crashes
+          if [ "$test1_exit" == "-1073741569" ]; then
+            echo "✅ **Hypothesis 3 CONFIRMED: xfun DLL cleanup**"
+            echo ""
+            echo "Evidence:"
+            echo "- ❌ xfun alone crashes (exit -1073741569)"
+            echo "- xfun's compiled C code (DLL) cleanup operations use Windows APIs incompatible with WOW64"
+            echo ""
+            echo "**Root cause**: xfun's DLL cleanup during R termination"
+            echo ""
+            echo "**Why knitr works**: Need to investigate difference in how knitr vs rmarkdown load/use xfun"
+
+          # Scenario 2: minimal combo crashes but xfun alone works
+          elif [ "$test2_exit" == "-1073741569" ] && [ "$test1_exit" == "0" ]; then
+            echo "✅ **Hypothesis 5 CONFIRMED: Package combination**"
+            echo ""
+            echo "Evidence:"
+            echo "- ✅ xfun alone works fine"
+            echo "- ❌ htmltools + knitr + xfun + evaluate crashes"
+            echo ""
+            echo "**Root cause**: Interaction between packages during cleanup"
+            echo ""
+            echo "**Why knitr works**: knitr loads different package combination"
+
+          # Scenario 3: both pass
+          elif [ "$test1_exit" == "0" ] && [ "$test2_exit" == "0" ]; then
+            echo "✅ **Hypothesis 4 CONFIRMED: rmarkdown's .onLoad hook**"
+            echo ""
+            echo "Evidence:"
+            echo "- ✅ xfun alone works fine"
+            echo "- ✅ Package combination works fine"
+            echo "- ❌ rmarkdown (which adds setHook) crashes"
+            echo ""
+            echo "**Root cause**: rmarkdown's persistent hook registered via setHook(packageEvent(\"knitr\", \"onLoad\"), ...)"
+            echo ""
+            echo "The hook registration or cleanup causes issues under WOW64 emulation"
+
+          # Scenario 4: knitr crashes (unexpected)
+          elif [ "$test3_exit" == "-1073741569" ]; then
+            echo "⚠️ **Unexpected result: knitr crashed**"
+            echo ""
+            echo "This is unexpected - knitr was known to work in earlier testing."
+            echo "Something may have changed, or there's inconsistent behavior."
+
+          else
+            echo "⚠️ **Inconclusive or mixed results**"
+            echo ""
+            echo "Exit codes:"
+            echo "- Test 1 (xfun only): $test1_exit"
+            echo "- Test 2 (minimal combo): $test2_exit"
+            echo "- Test 3 (knitr only): $test3_exit"
+            echo ""
+            echo "Review individual test logs for details."
+          fi
