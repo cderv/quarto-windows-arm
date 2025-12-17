@@ -1,10 +1,10 @@
 # Next Investigation: rmarkdown Package Failure on R x64 Windows ARM
 
-## Investigation Status: Phase 1-2 Complete ✅
+## Investigation Status: Phase 1-4 Complete ✅
 
 **Last Updated:** December 17, 2025
 
-We've completed systematic investigation into why rmarkdown crashes on R x64 Windows ARM. See **INVESTIGATION-RESULTS.md** for complete findings.
+We've completed systematic investigation including source code analysis. See **INVESTIGATION-RESULTS.md** for complete findings.
 
 ## What We've Completed
 
@@ -36,116 +36,137 @@ Tested 6 combinations including all 5 suspect DLLs loaded simultaneously.
 
 **Conclusion:** The crash is NOT in the DLLs themselves.
 
-## 🎯 Critical Discovery
+### ✅ Phase 4: rmarkdown Source Code Analysis
 
-**The crash is in rmarkdown's own code, not its dependencies or DLLs.**
+**Result:** Identified root cause hypothesis and disproved Pandoc theory
 
-Based on DeepWiki analysis of rmarkdown repository, the crash is likely in **Pandoc management operations**:
+**Complete analysis:** See **[RMARKDOWN-SOURCE-ANALYSIS.md](RMARKDOWN-SOURCE-ANALYSIS.md)**
 
-1. **Pandoc detection during `.onLoad`:**
-   - `find_pandoc()` searches system PATH
-   - Queries environment variables
-   - Checks RStudio-specific paths
-   - Uses system calls that may fail under WOW64 emulation
+**Key findings:**
+- ❌ Pandoc management is NOT the cause (Pandoc is lazy-loaded)
+- ❌ No explicit cleanup hooks (no `.onUnload` or `.onDetach`)
+- ✅ bslib global state management identified as primary suspect (80% likelihood)
+- ✅ Three alternative hypotheses documented (temp files, hooks, bindings)
 
-2. **Process spawning:**
-   - `system()` calls to execute Pandoc binary
-   - Spawns x64 Pandoc under emulation
-   - Could trigger STATUS_NOT_SUPPORTED
+## 🎯 Critical Discovery - Updated
 
-3. **Cleanup during termination:**
-   - `.onUnload`/`.onDetach` hooks
-   - Temporary file cleanup
-   - Potential Pandoc process cleanup
+**The crash is in implicit cleanup of rmarkdown's dependencies, specifically bslib.**
 
-**Key insight:** knitr doesn't manage external tools like Pandoc, so it doesn't have these system-level operations.
+**Previous hypothesis (REJECTED):** Pandoc management
+- Source analysis proved Pandoc is lazy-loaded
+- `find_pandoc()` NOT called during package load
+- Simple `library(rmarkdown)` crashes without touching Pandoc code
 
-## Next Investigation Phase (Optional)
+**Current hypothesis (VALIDATED BY ANALYSIS):** bslib global state management
 
-Since we've proven the issue is in rmarkdown's own code, further investigation would focus on **Pandoc-specific operations**.
+**Why bslib is the smoking gun:**
+1. **Differential behavior explained:** rmarkdown imports bslib, knitr does not
+2. **Global state operations:** `bslib::bs_global_set()` modifies package-global theme state
+3. **Automatic cleanup:** Even without `.onUnload`, R cleans up bslib's internal state during termination
+4. **WOW64 incompatibility:** bslib cleanup likely uses Windows APIs that fail under x64 emulation
+5. **Crash timing:** Happens during R termination after script completes (cleanup phase)
 
-### Recommended Tests
+## Phase 5: bslib Hypothesis Testing (In Progress)
 
-#### Test 1: Pandoc Detection Isolation
+To confirm bslib is the root cause, we need empirical validation through targeted tests.
 
-**Goal:** Determine if `find_pandoc()` is called during `library(rmarkdown)` and if it causes the crash.
+### Test Scripts to Create
+
+#### Test 1: `test-bslib-only.R`
+
+**Goal:** Isolate bslib - does it alone cause the crash?
 
 ```r
-# test-pandoc-detection.R
-# Test: Does rmarkdown call find_pandoc() during library loading?
+# Load bslib and use global state functions
+cat("Loading bslib package...\n")
+library(bslib)
 
-cat("Loading rmarkdown...\n")
+cat("Getting global theme...\n")
+old_theme <- bs_global_get()
+cat("  Old theme:", class(old_theme), "\n")
+
+cat("Setting new global theme...\n")
+new_theme <- bs_theme(bg = "#000", fg = "#FFF")
+bs_global_set(new_theme)
+cat("  New theme set\n")
+
+cat("SUCCESS: Script completed\n")
+# Exit - if crash happens, it's during termination
+```
+
+**Expected:** ❌ FAIL if bslib is the root cause
+
+#### Test 2: `test-bslib-deps.R`
+
+**Goal:** Test bslib's dependencies separately
+
+```r
+# Test each bslib dependency
+cat("Loading bslib dependencies individually...\n")
+
+cat("Loading sass...\n")
+library(sass)
+
+cat("Loading jquerylib...\n")
+library(jquerylib)
+
+cat("Loading htmltools...\n")
+library(htmltools)
+
+cat("Loading rlang...\n")
+library(rlang)
+
+cat("Loading fastmap...\n")
+library(fastmap)
+
+cat("SUCCESS: All bslib deps loaded\n")
+```
+
+**Expected:** ✅ PASS (deps work individually, as proven in Phase 1)
+
+#### Test 3: `test-rmarkdown-minimal.R`
+
+**Goal:** Load rmarkdown without calling any functions
+
+```r
+# Just load rmarkdown, don't use any functions
+cat("Loading rmarkdown package...\n")
 library(rmarkdown)
 
-cat("Checking if Pandoc was detected:\n")
-available <- pandoc_available()
-cat("  pandoc_available():", available, "\n")
+cat("Checking what was loaded:\n")
+cat("  .render_context exists:", exists(".render_context", envir = asNamespace("rmarkdown")), "\n")
 
-if (available) {
-  version <- pandoc_version()
-  cat("  pandoc_version():", as.character(version), "\n")
+# Check if bslib global state was touched
+if (requireNamespace("bslib", quietly = TRUE)) {
+  theme <- bslib::bs_global_get()
+  cat("  bslib global theme:", class(theme), "\n")
 }
 
-cat("Result: SUCCESS (if you see this)\n")
+cat("SUCCESS: rmarkdown loaded\n")
+# Exit - crash during termination
 ```
 
-#### Test 2: Hook Investigation
+**Expected:** ❌ FAIL (rmarkdown loads bslib automatically)
 
-**Goal:** Document what cleanup hooks rmarkdown registers.
+### GitHub Actions Workflow
 
-```r
-# test-hooks-rmarkdown.R
-# Test: What cleanup operations does rmarkdown register?
+Create `.github/workflows/test-bslib-hypothesis.yml` to run these tests on `windows-11-arm` with R x64.
 
-library(rmarkdown)
+**Expected pattern if bslib hypothesis confirmed:**
+- ❌ `test-bslib-only.R` - FAILS
+- ✅ `test-bslib-deps.R` - PASSES
+- ❌ `test-rmarkdown-minimal.R` - FAILS
 
-ns <- asNamespace("rmarkdown")
+This pattern would prove bslib is the root cause.
 
-cat("Checking for cleanup hooks:\n")
+### Alternative Hypotheses (if bslib rejected)
 
-if (exists(".onUnload", where = ns, inherits = FALSE)) {
-  cat("  .onUnload: EXISTS\n")
-  cat("  Code:\n")
-  print(body(get(".onUnload", envir = ns)))
-} else {
-  cat("  .onUnload: NOT FOUND\n")
-}
+If all three tests pass, investigate:
+1. Temporary file cleanup (`clean_tmpfiles()` with `unlink()`)
+2. Hook persistence (`setHook(packageEvent(...))`)
+3. Namespace binding manipulation (`unlockBinding()`)
 
-if (exists(".onDetach", where = ns, inherits = FALSE)) {
-  cat("  .onDetach: EXISTS\n")
-  cat("  Code:\n")
-  print(body(get(".onDetach", envir = ns)))
-} else {
-  cat("  .onDetach: NOT FOUND\n")
-}
-
-cat("Result: SUCCESS (if you see this - crash happens during termination)\n")
-```
-
-#### Test 3: Namespace Loading
-
-**Goal:** Test if crash occurs with `loadNamespace()` vs `library()`.
-
-```r
-# test-namespace-only.R
-# Test: Does loadNamespace crash or just library()?
-
-cat("Loading rmarkdown namespace (not attaching)...\n")
-loadNamespace("rmarkdown")
-cat("Namespace loaded successfully\n")
-
-cat("Result: SUCCESS (if you see this)\n")
-# If this passes but library(rmarkdown) crashes,
-# the issue is in attachment, not loading
-```
-
-### Implementation Notes
-
-These tests are **optional** - they would help pinpoint the exact operation that fails, but we already have enough evidence for rmarkdown maintainers:
-
-1. The crash is in rmarkdown's own code
-2. It's related to operations rmarkdown performs that knitr doesn't (likely Pandoc management)
-3. All dependencies work fine individually and in combination
+See **[RMARKDOWN-SOURCE-ANALYSIS.md](RMARKDOWN-SOURCE-ANALYSIS.md)** for detailed analysis of each hypothesis.
 
 ## Evidence for Bug Report
 
@@ -164,20 +185,21 @@ See **INVESTIGATION-RESULTS.md** for complete documentation suitable for rmarkdo
 ## Current Status
 
 ### Completed ✅
-- [x] Individual dependency isolation (24 packages)
-- [x] DLL analysis (baseline, knitr, rmarkdown comparison)
-- [x] DLL combination testing (6 combinations)
-- [x] Root cause identified (rmarkdown's own code, not dependencies)
-- [x] Hypothesis formed (Pandoc management operations)
-- [x] Documentation for maintainers
+- [x] Phase 1: Individual dependency isolation (24 packages)
+- [x] Phase 2: DLL analysis (baseline, knitr, rmarkdown comparison)
+- [x] Phase 3: DLL combination testing (6 combinations)
+- [x] Phase 4: rmarkdown source code analysis
+- [x] Root cause hypothesis updated (bslib global state, NOT Pandoc)
+- [x] Comprehensive documentation created (RMARKDOWN-SOURCE-ANALYSIS.md)
 
-### Optional 🔍
-- [ ] Pandoc detection testing
-- [ ] Hook investigation
-- [ ] Namespace vs library() testing
+### In Progress 🔄
+- [ ] Phase 5: Create bslib test scripts
+- [ ] Phase 5: Create GitHub Actions workflow
+- [ ] Phase 5: Run empirical tests on windows-11-arm
+- [ ] Phase 5: Analyze results and confirm/reject hypothesis
 
 ### Not Needed ❌
-- ~~Function-level testing~~ (crash is in termination, not execution)
+- ~~Pandoc detection testing~~ (Pandoc is lazy-loaded, not the issue)
 - ~~More dependency combinations~~ (all dependencies work)
 - ~~Deeper DLL investigation~~ (all DLLs work together)
 

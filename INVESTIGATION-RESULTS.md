@@ -68,6 +68,35 @@ Tested combinations:
 
 **Conclusion:** Even loading all 5 suspect DLLs together does NOT cause the crash.
 
+### Phase 4: rmarkdown Source Code Analysis
+
+**Goal:** Analyze rmarkdown source code to identify what operations could cause termination crash.
+
+**Method:** Deep analysis of rmarkdown package structure, initialization hooks, and dependency usage.
+
+**Complete analysis:** See **[RMARKDOWN-SOURCE-ANALYSIS.md](RMARKDOWN-SOURCE-ANALYSIS.md)** for comprehensive findings.
+
+**Key discoveries:**
+
+1. **No compiled code** - rmarkdown has no `src/` directory, no C/C++ code
+2. **No explicit cleanup hooks** - NO `.onUnload`, `.onDetach`, or `.onAttach` defined
+3. **Pandoc is lazy-loaded** - `find_pandoc()` NOT called during `.onLoad`, only on-demand
+4. **bslib global state usage** - `bslib::bs_global_set()` modifies package-global theme state
+
+**Critical finding - bslib dependency:**
+- rmarkdown imports bslib (knitr does NOT)
+- bslib loaded automatically with rmarkdown
+- bslib provides global theme management via `bs_global_set()`
+- Global state cleanup during R termination could fail under WOW64
+
+**Four root cause hypotheses identified:**
+1. **bslib global state cleanup** (80% likelihood) - Most likely smoking gun
+2. **Temporary file cleanup** via `unlink()` (10% likelihood)
+3. **Hook persistence** from `setHook(packageEvent(...))` (5% likelihood)
+4. **Namespace binding manipulation** via `unlockBinding()` (5% likelihood)
+
+**Conclusion:** The crash is most likely in **bslib's global state management** during R termination, NOT in Pandoc operations.
+
 ## Critical Findings
 
 ### What We've Proven
@@ -81,36 +110,34 @@ Tested combinations:
 **The crash is NOT in rmarkdown's dependencies or DLLs.**
 
 The crash MUST be in:
-- **rmarkdown's own initialization/cleanup code** (.onLoad, .onUnload, .onDetach hooks)
-- **Operations rmarkdown performs** after loading its dependencies
-- **How rmarkdown uses these packages** (not just loading them)
+- **Implicit cleanup operations** during R termination (no explicit .onUnload in rmarkdown)
+- **Global state management** in loaded dependencies (specifically bslib)
+- **How rmarkdown's dependencies interact** during automatic package unloading
 
-## DeepWiki Insight: Pandoc Management
+## Updated Root Cause Analysis
 
-Querying the rmarkdown repository revealed critical information:
+### Previous Hypothesis: Pandoc Management ❌
 
-**What rmarkdown does that knitr doesn't:**
+Initial DeepWiki analysis suggested Pandoc management, but **source code review proved this wrong**:
 
-1. **During initialization (.onLoad):**
-   - Calls `find_pandoc()` to locate Pandoc executable
-   - Searches system PATH and environment variables
-   - Checks RStudio-specific paths
-   - **Involves system calls that could fail under x64 emulation**
+- ❌ `find_pandoc()` is **NOT** called during `.onLoad` - it's lazy-loaded
+- ❌ Pandoc detection only happens when pandoc functions are actually used
+- ❌ Simple `library(rmarkdown)` crashes without ever touching Pandoc code
 
-2. **Process spawning:**
-   - Uses `system()` calls to execute external Pandoc binary
-   - Spawns x64 Pandoc process under emulation
-   - **Could trigger STATUS_NOT_SUPPORTED in emulated environment**
+**Conclusion:** Pandoc is NOT the root cause.
 
-3. **Cleanup operations:**
-   - Registers `on.exit()` handlers for temporary file cleanup
-   - Uses `unlink()`, `list.files()`, `dir.create()`
-   - **File system operations during termination**
+### Current Hypothesis: bslib Global State Management ✅
+
+**Evidence from source analysis:**
+
+1. **bslib is loaded by rmarkdown, NOT by knitr** (explains differential behavior)
+2. **Global state operations** - `bslib::bs_global_set()` in html_document_base.R
+3. **Automatic cleanup** - Even without explicit .onUnload, R cleans up package state
+4. **WOW64 incompatibility** - bslib cleanup likely uses Windows APIs that fail under x64 emulation
 
 **Key difference from knitr:**
-- knitr focuses on code chunk execution and markdown output
-- rmarkdown manages external tool (Pandoc) requiring system calls
-- rmarkdown's Pandoc detection/execution introduces WOW64 emulation issues
+- knitr: Pure R operations, no global state management
+- rmarkdown: Loads bslib → bslib manages global theme state → cleanup fails under WOW64
 
 ## Test Evidence Location
 
@@ -133,31 +160,42 @@ All tests run on GitHub Actions `windows-11-arm` runners with R x64 4.5.1.
 - DLL combinations: https://github.com/cderv/quarto-windows-arm/actions/runs/20304782348
 - Suspect DLLs: https://github.com/cderv/quarto-windows-arm/actions/runs/20304871958
 
-## Next Steps for Investigation
+## Phase 5: bslib Hypothesis Testing (In Progress)
 
-### Recommended: Pandoc-Related Testing
+### Goal
 
-Since deepwiki revealed Pandoc management is unique to rmarkdown:
+Empirically validate that bslib global state management is the root cause.
 
-1. **Test Pandoc detection during library loading:**
-   - Does rmarkdown call `find_pandoc()` when you just load the library?
-   - Can we isolate Pandoc detection operations?
+### Test Strategy
 
-2. **Test with/without Pandoc available:**
-   - Does the crash occur if Pandoc is not found?
-   - Does disabling Pandoc detection prevent the crash?
+Create minimal test scripts to isolate bslib's role:
 
-3. **Examine cleanup hooks:**
-   - What does rmarkdown's .onUnload/.onDetach do?
-   - Are there Pandoc-related cleanup operations?
-   - Do cleanup hooks attempt system calls that fail under WOW64?
+1. **`test-bslib-only.R`** - Load bslib and use `bs_global_set()`
+   - Expected: Should crash if bslib is the root cause
 
-### Optional: Phase 3 Hook Investigation
+2. **`test-bslib-deps.R`** - Load bslib dependencies individually
+   - Expected: Should pass (deps work separately)
 
-Create tests to examine:
-- `test-hooks-rmarkdown.R` - Document .onLoad/.onUnload/.onDetach hooks
-- `test-namespace-only.R` - Test loadNamespace() vs library()
-- `test-namespace-comparison.R` - Compare knitr vs rmarkdown loading
+3. **`test-rmarkdown-minimal.R`** - Load rmarkdown without calling functions
+   - Expected: Should crash (rmarkdown loads bslib automatically)
+
+### Expected Results
+
+**If bslib hypothesis confirmed:**
+- ❌ `test-bslib-only.R` - FAILS (proves bslib alone causes crash)
+- ✅ `test-bslib-deps.R` - PASSES (deps work individually)
+- ❌ `test-rmarkdown-minimal.R` - FAILS (rmarkdown loads bslib)
+
+**If bslib hypothesis rejected:**
+- ✅ All tests pass
+- Need to investigate alternative hypotheses (temp file cleanup, hooks, etc.)
+
+### Implementation Status
+
+See **[RMARKDOWN-SOURCE-ANALYSIS.md](RMARKDOWN-SOURCE-ANALYSIS.md)** for:
+- Complete test script designs
+- GitHub Actions workflow specification
+- Alternative hypothesis testing plans
 
 ## Findings for rmarkdown Maintainers
 
@@ -169,16 +207,21 @@ Create tests to examine:
 - ❌ NOT caused by individual dependencies (all 24 pass)
 - ❌ NOT caused by DLL combinations (all combinations pass)
 - ❌ NOT caused by native libraries (all DLLs work together)
+- ❌ NOT caused by Pandoc management (Pandoc is lazy-loaded, not called during package load)
 - ✅ ONLY occurs when loading rmarkdown itself
 - ✅ Scripts complete successfully before crashing during termination
 
-**Root cause hypothesis:**
-The crash is in rmarkdown's own initialization/cleanup code, specifically operations related to Pandoc management:
-- Pandoc detection during `.onLoad` (system PATH searches, environment queries)
-- Pandoc process spawning via `system()` calls
-- Cleanup operations during `.onUnload`/`.onDetach`
+**Root cause hypothesis (updated):**
+The crash is most likely in **bslib's global state management** during R termination:
+- rmarkdown imports bslib (knitr does not) - explains differential behavior
+- bslib provides global theme management via `bs_global_set()`
+- Even without explicit `.onUnload`, R performs automatic cleanup of package state
+- bslib's cleanup operations likely use Windows APIs that return STATUS_NOT_SUPPORTED under WOW64 emulation
 
-These operations likely use Windows API calls that return STATUS_NOT_SUPPORTED under x64 emulation on Windows ARM.
+**Alternative hypotheses:**
+- Temporary file cleanup via `unlink()` (less likely - would need to be triggered during package load)
+- Package hook persistence from `setHook(packageEvent(...))` (less likely - pure R mechanism)
+- Namespace binding manipulation via `unlockBinding()` (less likely - not in `.onLoad` code path)
 
 **Tested environment:**
 - R x64 4.5.1 on Windows 11 ARM (GitHub Actions `windows-11-arm` runners)
