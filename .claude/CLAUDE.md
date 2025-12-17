@@ -15,7 +15,7 @@ This is a comprehensive testing suite for Quarto on Windows 11 ARM that:
 
 ## Workflow Organization
 
-13 GitHub Actions workflows organized into two categories:
+17 GitHub Actions workflows organized into two categories:
 
 ### Build Workflows (5)
 Test Quarto rendering with different R configurations:
@@ -26,7 +26,7 @@ Test Quarto rendering with different R configurations:
 - `build-r-x64-artifact.yml` - PR #13790 Quarto artifact with R x64
 - `build-r-aarch64-artifact.yml` - PR #13790 Quarto artifact with R ARM64
 
-### Test Workflows (8)
+### Test Workflows (12)
 Focused technical investigations:
 
 - `test-subprocess-direct-rscript.yml` - Direct R execution baseline (no subprocess layer)
@@ -36,6 +36,10 @@ Focused technical investigations:
 - `test-r-package-loading.yml` - R package loading in isolation
 - `test-deno-versions-isolated.yml` - Deno version comparison (12 isolated jobs)
 - `test-arm-detection.yml` - ARM Windows detection using IsWow64Process2 API
+- `investigate-rmarkdown-deps.yml` - Test all 24 rmarkdown dependencies individually
+- `investigate-rmarkdown-dlls.yml` - Analyze DLLs loaded by baseline R, knitr, and rmarkdown
+- `investigate-dll-combinations.yml` - Test combinations of suspect DLLs
+- `investigate-suspect-dlls.yml` - Test 4 individual suspect DLLs
 
 ## Testing Commands
 
@@ -70,6 +74,13 @@ Rscript detect-windows-arm.R                  # ❌ Fails (R FFI limitation)
 # Other runtime tests
 node test-node-rscript.js
 python test-python-rscript.py
+
+# Investigation scripts (completed investigation)
+Rscript test-dep-<package>.R      # Test individual dependency (24 packages)
+Rscript test-dlls-baseline.R      # Analyze baseline R DLLs
+Rscript test-dlls-knitr.R         # Analyze knitr DLLs
+Rscript test-dlls-rmarkdown.R     # Analyze rmarkdown DLLs (crashes)
+Rscript test-combo-all-five.R     # Test all 5 suspect DLLs together (passes)
 ```
 
 ### Render with Quarto Profiles
@@ -102,6 +113,24 @@ Test Windows ARM detection from x64 processes:
 
 - `detect-windows-arm.ts` - Deno FFI calling IsWow64Process2 ✅ (works correctly)
 - `detect-windows-arm.R` - R FFI attempting IsWow64Process2 ❌ (fails due to R FFI limitations with pointer parameters)
+
+### Investigation Test Scripts
+Deep investigation into rmarkdown crash root cause (completed ✅):
+
+**Dependency Testing (24 scripts):**
+- `test-dep-*.R` - Individual dependency isolation tests
+  - Examples: `test-dep-tinytex.R`, `test-dep-htmltools.R`, `test-dep-bslib.R`
+  - Result: All 24 dependencies pass individually
+
+**DLL Analysis (3 scripts):**
+- `test-dlls-baseline.R` - Baseline R DLLs (6 DLLs)
+- `test-dlls-knitr.R` - knitr DLLs (8 DLLs: baseline + 2)
+- `test-dlls-rmarkdown.R` - rmarkdown DLLs (13 DLLs: knitr's 8 + 5 unique)
+
+**DLL Combination Testing (6 scripts):**
+- `test-combo-*.R` - Test combinations of 5 suspect DLLs
+  - Examples: `test-combo-cli-htmltools.R`, `test-combo-all-five.R`
+  - Result: All combinations pass (even all 5 together)
 
 ## Quarto Profiles
 
@@ -210,13 +239,14 @@ Each matrix job installs R packages independently (12 total jobs: 4 Deno version
 
 ## Key Technical Findings
 
-### Root Cause: rmarkdown Package Termination Issue
+### Root Cause: rmarkdown Namespace Loading Issue (Exact cause unknown after 7 phases)
 - R x64 works when called directly from PowerShell for simple scripts ✅
 - R x64 crashes when loading rmarkdown package (exit code -1073741569 = STATUS_NOT_SUPPORTED) ❌
-- Crash occurs during package cleanup/termination, **after** script completes and produces valid output
+- Crash occurs during R termination, **after** script completes successfully
 - Issue occurs across ALL invocation methods (PowerShell, Deno, Node.js, Python)
 - This is NOT a subprocess spawning issue or Quarto/Deno bug
-- Root cause: rmarkdown package cleanup operations incompatible with WOW64 emulation
+- **Root cause:** Something in rmarkdown's namespace loading mechanism (NOT `.onLoad`, NOT dependencies, NOT package combinations) uses Windows APIs incompatible with WOW64 emulation
+- **7 phases completed, 5 hypotheses systematically rejected**
 
 ### Affected vs Unaffected Scenarios
 **Affected (fails):**
@@ -233,12 +263,51 @@ Each matrix job installs R packages independently (12 total jobs: 4 Deno version
 
 There is no workaround. Quarto PR #13790 correctly detects this unsupported configuration and provides helpful error messages directing users to R ARM64.
 
+## Investigation Summary (7 Phases Completed ✅)
+
+**Goal:** Identify the exact component causing rmarkdown crash on R x64 Windows ARM
+
+**Phase 1 - Dependency Testing:** All 24 dependencies tested individually → ALL PASS ✅
+
+**Phase 2 - DLL Analysis:** Identified 5 DLLs unique to rmarkdown
+
+**Phase 3 - DLL Combination Testing:** All 6 combinations tested → ALL PASS ✅
+
+**Phase 4 - Source Code Analysis:**
+- Analyzed rmarkdown source code
+- Rejected Pandoc hypothesis (lazy-loaded, not called)
+- Identified 4 hypotheses including bslib, setHook, temp files, bindings
+
+**Phase 5 - bslib Hypothesis Testing:**
+- Tested bslib in isolation → PASS ✅
+- Found rmarkdown crashes WITHOUT bslib even loaded
+- **Hypothesis REJECTED** ❌
+
+**Phase 6 - Remaining Hypotheses Testing:**
+- xfun alone → PASS ✅
+- Package combination (htmltools + knitr + xfun + evaluate) → PASS ✅
+- knitr alone → PASS ✅
+- Pointed to rmarkdown's `.onLoad` as differentiator
+
+**Phase 7 - setHook/`.onLoad` Confirmation:**
+- setHook mechanism alone → PASS ✅
+- Complete `.onLoad` reproduction → PASS ✅
+- **Hypothesis REJECTED** ❌
+
+**Current Status:**
+- **5 hypotheses systematically rejected**
+- Root cause is in rmarkdown's namespace loading mechanism (beyond `.onLoad`)
+- Exact component unknown - requires R internals debugging
+- See `INVESTIGATION-RESULTS.md` and `NEXT-INVESTIGATION.md` for complete analysis
+
 ## Important Documentation
 
 - `README.md` - Overview, test scenarios, repository structure
-- `FINDINGS.md` - Comprehensive technical analysis of R x64/ARM incompatibility
+- `FINDINGS.md` - Original technical analysis of R x64/ARM incompatibility
+- `INVESTIGATION-RESULTS.md` - **Complete investigation findings (START HERE for investigation details)**
+- `NEXT-INVESTIGATION.md` - **7-phase investigation status, all rejected hypotheses, and current status**
+- `RMARKDOWN-SOURCE-ANALYSIS.md` - Phase 4 source code analysis
 - `ARM-DETECTION.md` - Windows ARM detection implementation details and test results
-- `NEXT-INVESTIGATION.md` - Future investigation areas (if exists)
 
 ## Related Work
 

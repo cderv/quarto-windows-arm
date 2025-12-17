@@ -1,10 +1,10 @@
 # Next Investigation: rmarkdown Package Failure on R x64 Windows ARM
 
-## Investigation Status: Phase 1-5 Complete ✅
+## Investigation Status: Phase 1-7 Complete ✅
 
 **Last Updated:** December 17, 2025
 
-We've completed systematic investigation including source code analysis and empirical bslib hypothesis testing. See **INVESTIGATION-RESULTS.md** for complete findings.
+We've completed systematic investigation through 7 phases. Multiple hypotheses have been tested and rejected. The root cause remains in rmarkdown's namespace loading mechanism. See **INVESTIGATION-RESULTS.md** for complete findings.
 
 ## What We've Completed
 
@@ -73,90 +73,127 @@ Packages loaded when crash occurred:
 
 **Conclusion:** The crash occurs even when bslib is not loaded. bslib global state management is NOT the root cause.
 
-## 🎯 Critical Discovery - Phase 5 Results
+### ✅ Phase 6: Testing Remaining Hypotheses (xfun, package combo, .onLoad)
 
-**The crash is in implicit cleanup of minimal rmarkdown loading.**
+**Result:** Identified that rmarkdown's `.onLoad` hook is the differentiator
 
-### Rejected Hypotheses
+**Test workflow:** `.github/workflows/test-phase6-hypotheses.yml`
 
-**Hypothesis 1 (REJECTED):** Pandoc management
+**Test results:**
+- Test 1 (xfun only): ✅ PASSED (exit 0)
+- Test 2 (minimal combo: htmltools + knitr + xfun + evaluate): ✅ PASSED (exit 0)
+- Test 3 (knitr only): ✅ PASSED (exit 0)
+
+**Critical finding:** The exact package combination that was loaded when rmarkdown crashed works fine WITHOUT rmarkdown.
+
+**Conclusion:** The crash is NOT in xfun's DLL, NOT in the package combination. The issue is in **rmarkdown's `.onLoad` hook mechanism** (Hypothesis 4 from Phase 4).
+
+### ✅ Phase 7: setHook Root Cause Confirmation (HYPOTHESIS REJECTED)
+
+**Result:** `.onLoad` hook hypothesis DEFINITIVELY REJECTED
+
+**Test workflow:** `.github/workflows/test-sethook-hypothesis.yml`
+
+**Test results:**
+- Test 1 (setHook mechanism only): ✅ PASSED (exit 0)
+- Test 2 (complete .onLoad reproduction): ✅ PASSED (exit 0)
+
+**Critical finding:** Reproducing rmarkdown's `.onLoad` function behavior (stack creation + knitr loading + setHook registration) does NOT cause crash.
+
+**Conclusion:** The crash is NOT in the `.onLoad` function. Something else during rmarkdown namespace loading causes the crash.
+
+## 🎯 Critical Discovery - Phase 7 Results
+
+**The crash occurs during rmarkdown namespace loading, NOT in `.onLoad`, NOT in dependencies, NOT in package combinations.**
+
+### All Rejected Hypotheses (Phases 1-7)
+
+**Hypothesis 1 (REJECTED - Phase 4):** Pandoc management
 - Source analysis proved Pandoc is lazy-loaded
 - `find_pandoc()` NOT called during package load
 - Simple `library(rmarkdown)` crashes without touching Pandoc code
 
-**Hypothesis 2 (REJECTED):** bslib global state management
+**Hypothesis 2 (REJECTED - Phase 5):** bslib global state management
 - Empirical testing showed bslib alone works fine (exit 0)
-- Test 3 proved rmarkdown crashes WITHOUT bslib being loaded
+- rmarkdown crashes WITHOUT bslib being loaded
 - bslib is NOT the root cause
 
-### Current Finding: Minimal Package Combination Causes Crash
+**Hypothesis 3 (REJECTED - Phase 6):** xfun DLL cleanup
+- xfun alone works fine (exit 0)
+- xfun is NOT the root cause
 
-**What WAS loaded when crash occurred:**
-- ✓ htmltools (HTML tag builder)
-- ✓ knitr (R code execution engine)
-- ✓ **xfun** (utility functions **with compiled C code DLL**)
-- ✓ evaluate (code evaluation)
+**Hypothesis 4 (REJECTED - Phase 6):** Package combination
+- htmltools + knitr + xfun + evaluate work fine together (exit 0)
+- Package combination is NOT the root cause
 
-**Key observation:** xfun is the ONLY package with compiled native code (DLL) that was loaded.
+**Hypothesis 5 (REJECTED - Phase 7):** rmarkdown's `.onLoad` hook
+- setHook(packageEvent(...)) mechanism works fine (exit 0)
+- Complete `.onLoad` reproduction works fine (exit 0)
+- `.onLoad` function is NOT the root cause
 
-**Why this matters:**
-1. **Lazy loading behavior:** rmarkdown's minimal `.onLoad` doesn't force full dependency loading
-2. **xfun has C code:** Only loaded package with native DLL (`xfun.dll`)
-3. **DLL cleanup:** xfun's DLL cleanup during R termination may use Windows APIs incompatible with WOW64
-4. **Differential behavior:** knitr also uses xfun, but knitr works fine (needs investigation why)
-5. **Crash timing:** Happens during R termination after script completes (cleanup phase)
+### Current Status: Root Cause Unknown
 
-## Next Investigation Steps (Optional)
+**What we know:**
+1. ✅ All 24 dependencies work individually
+2. ✅ All DLL combinations work
+3. ✅ The minimal package combo (htmltools + knitr + xfun + evaluate) works
+4. ✅ rmarkdown's `.onLoad` function behavior works when reproduced
+5. ❌ BUT `library(rmarkdown)` crashes
 
-The bslib hypothesis has been rejected. Further investigation would focus on:
+**The issue must be in:**
+- Namespace loading mechanism (parsing R code, lazy loading)
+- S3/S4 method registration beyond `.onLoad`
+- Package attachment/import mechanics
+- Something specific to how R loads the rmarkdown package that we haven't isolated yet
 
-### Hypothesis 3: xfun DLL Cleanup
+**Crash characteristics:**
+- Exit code: -1073741569 (STATUS_NOT_SUPPORTED)
+- Timing: During R termination after script completes successfully
+- Platform: R x64 under WOW64 emulation on Windows ARM
+- Reproducible: 100% consistent across all testing methods
 
-**Approach:** Test if xfun's compiled C code cleanup is the issue
+## Next Investigation Steps
 
-**Test idea:**
-```r
-# test-xfun-only.R
-library(xfun)
-# Use some xfun functions to ensure DLL is loaded
-xfun::base64_encode("test")
-# Exit - does xfun alone crash?
-```
+After 7 phases and rejecting 5 hypotheses, further investigation would require deeper analysis:
 
-**Questions to answer:**
-1. Does xfun alone crash on Windows ARM x64?
-2. Why does knitr work when it also loads xfun?
-3. Is it the COMBINATION of xfun + htmltools + evaluate + rmarkdown's `.onLoad`?
+### Potential Areas to Explore
 
-### Hypothesis 4: setHook() Persistence
+**1. Namespace Loading Mechanics**
+- Compare how R loads rmarkdown vs how it loads knitr
+- Trace exact sequence of operations during `loadNamespace("rmarkdown")`
+- Identify any Windows API calls made during namespace loading
 
-**From rmarkdown's `.onLoad`:**
-```r
-setHook(packageEvent("knitr", "onLoad"), ...)
-```
+**2. Lazy Loading**
+- rmarkdown has lazy-loaded data or code
+- Test if the issue is in lazy load database initialization
 
-**Test idea:** Check if the persistent hook causes cleanup issues under WOW64
+**3. S3 Method Registration**
+- rmarkdown registers S3 methods beyond `.onLoad`
+- Test if method registration mechanism causes issues
 
-### Hypothesis 5: Package Combination
+**4. NAMESPACE File Processing**
+- rmarkdown's NAMESPACE file specifies imports and exports
+- Test if specific import/export directives trigger the issue
 
-**Test the specific combination:**
-```r
-# test-minimal-combo.R
-library(htmltools)
-library(evaluate)
-library(knitr)
-library(xfun)
-# Does this combination crash without rmarkdown?
-```
+**5. R Core Debugging**
+- Attach debugger to R process
+- Trace system calls during `library(rmarkdown)`
+- Identify exact Windows API that returns STATUS_NOT_SUPPORTED
 
-### Why Further Investigation May Not Be Needed
+### Why Further Investigation May Not Be Practical
 
-The current findings are sufficient for:
-1. **Documenting the issue for rmarkdown maintainers** ✅
-2. **Confirming Quarto PR #13790's approach is correct** ✅ (detect and warn)
-3. **Understanding why R ARM64 is required on Windows ARM** ✅
+1. **Complexity:** Requires low-level R internals knowledge
+2. **Platform-specific:** Needs Windows ARM hardware and debugging tools
+3. **Diminishing returns:** The solution (use R ARM64) is known and works
+4. **R core issue:** May require changes to R itself, not rmarkdown
 
-**Solution remains:** Use native R ARM64 on Windows ARM.
+### Current Recommendation
+
+**For users:** Use native R ARM64 on Windows ARM (works 100%)
+
+**For rmarkdown maintainers:** Document the incompatibility. The root cause is deep in R's namespace loading mechanism under WOW64 emulation. Without access to Windows ARM debugging tools and R internals expertise, pinpointing the exact line of code may not be feasible.
+
+**For Quarto:** PR #13790's approach (detect and warn) is correct.
 
 ## Evidence for Bug Report
 
@@ -167,63 +204,73 @@ See **INVESTIGATION-RESULTS.md** for complete documentation suitable for rmarkdo
 - Exit code: -1073741569 (STATUS_NOT_SUPPORTED)
 - All 24 dependencies tested individually - all pass
 - All DLL combinations tested - all pass
-- Only rmarkdown itself crashes
-- Hypothesis: Pandoc management operations use Windows APIs incompatible with WOW64 emulation
+- Package combinations tested - all pass
+- `.onLoad` behavior reproduced - passes
+- **Root cause:** Something in rmarkdown's namespace loading mechanism (beyond `.onLoad`) uses Windows APIs incompatible with WOW64 emulation
+- **7 phases completed, 5 hypotheses rejected**
 
 **Test repository:** https://github.com/cderv/quarto-windows-arm
 
 ## Current Status
 
 ### Completed ✅
-- [x] Phase 1: Individual dependency isolation (24 packages)
+- [x] Phase 1: Individual dependency isolation (24 packages) - All pass
 - [x] Phase 2: DLL analysis (baseline, knitr, rmarkdown comparison)
-- [x] Phase 3: DLL combination testing (6 combinations)
-- [x] Phase 4: rmarkdown source code analysis
-- [x] Phase 5: bslib hypothesis testing (REJECTED)
-  - [x] Created test scripts (test-bslib-only.R, test-bslib-deps.R, test-rmarkdown-minimal.R)
-  - [x] Created GitHub Actions workflow (.github/workflows/test-bslib-hypothesis.yml)
-  - [x] Ran empirical tests on windows-11-arm
-  - [x] Analyzed results: bslib hypothesis definitively rejected
+- [x] Phase 3: DLL combination testing (6 combinations) - All pass
+- [x] Phase 4: rmarkdown source code analysis - Identified 4 hypotheses
+- [x] Phase 5: bslib hypothesis testing - REJECTED
+- [x] Phase 6: xfun, package combo, and knitr testing - All pass, pointed to `.onLoad`
+- [x] Phase 7: setHook and `.onLoad` reproduction testing - REJECTED
 - [x] Comprehensive documentation created (RMARKDOWN-SOURCE-ANALYSIS.md)
 
-### Rejected Hypotheses ❌
-- ~~Pandoc management~~ (Pandoc is lazy-loaded, not the issue)
-- ~~bslib global state management~~ (empirical testing proved bslib NOT loaded when crash occurs)
-- ~~More dependency combinations~~ (all dependencies work individually)
-- ~~Deeper DLL investigation~~ (all DLLs work together in isolation)
+### All Rejected Hypotheses ❌
+1. ~~Pandoc management~~ (Phase 4 - lazy-loaded, not called)
+2. ~~bslib global state~~ (Phase 5 - not even loaded when crash occurs)
+3. ~~xfun DLL cleanup~~ (Phase 6 - xfun alone works fine)
+4. ~~Package combination~~ (Phase 6 - combination works without rmarkdown)
+5. ~~rmarkdown's `.onLoad` hook~~ (Phase 7 - reproduction works fine)
 
-### Optional Future Investigation 🔮
-- Hypothesis 3: xfun DLL cleanup (xfun is only loaded package with compiled C code)
-- Hypothesis 4: setHook() persistence from rmarkdown's `.onLoad`
-- Hypothesis 5: Specific combination of htmltools + knitr + xfun + evaluate + rmarkdown hook
+### Root Cause Status ⚠️
+**Unknown** - The crash is in rmarkdown's namespace loading mechanism, but the exact component has not been identified. Further investigation requires R internals debugging tools and Windows ARM platform access.
 
 ## Conclusion
 
-**The investigation has completed 5 phases and rejected 2 major hypotheses.**
+**The investigation has completed 7 phases and systematically rejected 5 hypotheses.**
 
-### What We've Proven:
-1. ✅ The crash is NOT in rmarkdown's individual dependencies (Phase 1)
-2. ✅ The crash is NOT in the DLLs themselves (Phase 3)
-3. ✅ The crash is NOT from Pandoc management (Phase 4 - Pandoc is lazy-loaded)
-4. ✅ The crash is NOT from bslib global state (Phase 5 - bslib not even loaded when crash occurs)
+### What We've Definitively Proven (Through Elimination):
+1. ✅ NOT in individual dependencies (Phase 1 - all 24 pass)
+2. ✅ NOT in DLL combinations (Phase 3 - all combinations pass)
+3. ✅ NOT in Pandoc management (Phase 4 - lazy-loaded, not called)
+4. ✅ NOT in bslib global state (Phase 5 - not even loaded)
+5. ✅ NOT in xfun DLL cleanup (Phase 6 - xfun alone passes)
+6. ✅ NOT in package combinations (Phase 6 - exact combo passes)
+7. ✅ NOT in `.onLoad` function (Phase 7 - reproduction passes)
 
-### What We Know:
-- Crash happens during R process termination (after script completes successfully)
-- Exit code: -1073741569 (STATUS_NOT_SUPPORTED) - Windows WOW64 incompatibility
-- Minimal packages loaded when crash occurs: htmltools + knitr + **xfun** + evaluate
-- xfun is the ONLY package with compiled C code (DLL) that was loaded
-- rmarkdown's `.onLoad` registers a persistent hook via `setHook(packageEvent("knitr", "onLoad"), ...)`
+### What Remains Unknown:
+The crash occurs **during rmarkdown namespace loading**, specifically in:
+- Namespace loading mechanism (beyond `.onLoad`)
+- Lazy loading initialization
+- S3/S4 method registration
+- NAMESPACE file import/export processing
+- Some other R internal operation during package attachment
 
-### Remaining Investigation (Optional):
-Further testing would determine whether the issue is:
-- xfun's DLL cleanup operations
-- The persistent hook registered by rmarkdown
-- The specific combination of packages + hook
+### Why Further Investigation Is Challenging:
+1. Requires deep R internals knowledge
+2. Needs low-level Windows debugging on ARM hardware
+3. May be an R core issue, not fixable in rmarkdown
+4. The issue is 100% reproducible but highly specific to:
+   - R x64 (not R ARM64)
+   - Windows ARM (WOW64 emulation)
+   - rmarkdown package specifically
+   - Termination phase (not during execution)
 
-However, this level of detail is **NOT necessary** for:
-- Documenting the issue for rmarkdown maintainers ✅
-- Confirming Quarto PR #13790's approach is correct (detect and warn) ✅
-- Understanding why R ARM64 is required on Windows ARM ✅
+### Current Recommendation:
+
+**For users:** Use native R ARM64 on Windows ARM (works perfectly)
+
+**For rmarkdown maintainers:** The issue is documented but root cause isolation requires R core debugging. The crash is in namespace loading mechanics under WOW64 emulation.
+
+**For Quarto:** PR #13790's approach (detect x64 R on ARM Windows and warn users) is the correct solution.
 
 **Solution remains:** Use native R ARM64 on Windows ARM.
 
