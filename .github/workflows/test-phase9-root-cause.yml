@@ -1,0 +1,127 @@
+name: "Phase 9: Root Cause - bslib + knitr or Package Count?"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'test-phase9-*.R'
+      - '.github/workflows/test-phase9-*.yml'
+
+jobs:
+  test-bslib-knitr:
+    name: "Test bslib + knitr combination"
+    runs-on: windows-11-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packages
+        run: |
+          Rscript -e "install.packages(c('knitr', 'bslib'), repos = 'https://cloud.r-project.org')"
+
+      - name: Test bslib + knitr combination
+        shell: pwsh
+        run: |
+          Write-Host "`n=== Testing bslib + knitr Combination ===" -ForegroundColor Cyan
+          $exitCode = (Start-Process -FilePath "Rscript" `
+            -ArgumentList "test-phase9-bslib-knitr.R" `
+            -Wait -PassThru -NoNewWindow).ExitCode
+          Write-Host "Exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+
+          if ($exitCode -eq -1073741569) {
+            Write-Host "`n🎯 CRITICAL: bslib + knitr combination triggers crash!" -ForegroundColor Yellow
+            Write-Host "This proves rmarkdown's code is NOT the issue." -ForegroundColor Yellow
+            Write-Host "The issue is in the bslib + knitr dependency combination." -ForegroundColor Yellow
+          }
+          exit $exitCode
+
+  test-many-packages:
+    name: "Test many packages (not rmarkdown deps)"
+    runs-on: windows-11-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test loading many packages
+        shell: pwsh
+        run: |
+          Write-Host "`n=== Testing Many Packages ===" -ForegroundColor Cyan
+          $exitCode = (Start-Process -FilePath "Rscript" `
+            -ArgumentList "test-phase9-many-packages.R" `
+            -Wait -PassThru -NoNewWindow).ExitCode
+          Write-Host "Exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+
+          if ($exitCode -eq 0) {
+            Write-Host "`n✅ PROOF: Loading many packages works fine!" -ForegroundColor Green
+            Write-Host "The crash is NOT about namespace count." -ForegroundColor Green
+            Write-Host "The crash is specific to rmarkdown's dependency tree." -ForegroundColor Green
+          }
+          exit $exitCode
+
+  test-knitr-only:
+    name: "Test knitr only (control)"
+    runs-on: windows-11-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install knitr
+        run: |
+          Rscript -e "install.packages('knitr', repos = 'https://cloud.r-project.org')"
+
+      - name: Test knitr only
+        shell: pwsh
+        run: |
+          Write-Host "`n=== Testing knitr Only (Control) ===" -ForegroundColor Cyan
+          $content = @"
+          cat('Loading knitr...\n')
+          library(knitr)
+          cat('✓ knitr loaded\n')
+          cat('Loaded namespaces:\n')
+          print(loadedNamespaces())
+          "@
+          $content | Out-File -FilePath test-knitr-only.R -Encoding utf8
+
+          $exitCode = (Start-Process -FilePath "Rscript" `
+            -ArgumentList "test-knitr-only.R" `
+            -Wait -PassThru -NoNewWindow).ExitCode
+          Write-Host "Exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+
+          if ($exitCode -eq 0) {
+            Write-Host "`n✅ Control: knitr alone works (as expected)" -ForegroundColor Green
+          }
+          exit $exitCode
+
+  test-bslib-only:
+    name: "Test bslib only (control)"
+    runs-on: windows-11-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bslib
+        run: |
+          Rscript -e "install.packages('bslib', repos = 'https://cloud.r-project.org')"
+
+      - name: Test bslib only
+        shell: pwsh
+        run: |
+          Write-Host "`n=== Testing bslib Only (Control) ===" -ForegroundColor Cyan
+          $content = @"
+          cat('Loading bslib...\n')
+          library(bslib)
+          cat('✓ bslib loaded\n')
+          cat('Loaded namespaces:\n')
+          print(loadedNamespaces())
+          "@
+          $content | Out-File -FilePath test-bslib-only.R -Encoding utf8
+
+          $exitCode = (Start-Process -FilePath "Rscript" `
+            -ArgumentList "test-bslib-only.R" `
+            -Wait -PassThru -NoNewWindow).ExitCode
+          Write-Host "Exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+
+          if ($exitCode -eq 0) {
+            Write-Host "`n✅ Control: bslib alone works (as expected)" -ForegroundColor Green
+          }
+          exit $exitCode
