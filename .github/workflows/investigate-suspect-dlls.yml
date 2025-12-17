@@ -1,0 +1,100 @@
+name: Investigate Suspect DLLs Individually
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-suspect-dlls:
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        dll:
+          - { name: "cli", description: "Console/terminal interactions" }
+          - { name: "digest", description: "Cryptographic hashing" }
+          - { name: "fastmap", description: "Fast hash maps" }
+          - { name: "rlang", description: "Low-level R internals" }
+
+    name: "Suspect DLL: ${{ matrix.dll.name }}"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install ${{ matrix.dll.name }} package
+        run: |
+          Write-Host "Installing ${{ matrix.dll.name }}..."
+          Rscript -e "install.packages('${{ matrix.dll.name }}', repos='https://cloud.r-project.org')"
+
+      - name: "Test ${{ matrix.dll.name }}"
+        id: test-dll
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Testing: ${{ matrix.dll.name }}"
+          Write-Host "Description: ${{ matrix.dll.description }}"
+          Write-Host "Context: Loaded by rmarkdown but NOT by knitr"
+          Write-Host "========================================="
+          Write-Host ""
+
+          $output = Rscript test-dep-${{ matrix.dll.name }}.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ ${{ matrix.dll.name }} works individually"
+            exit 0
+          } elseif ($exitCode -eq -1073741569) {
+            Write-Host "::error::❌ ${{ matrix.dll.name }} CRASHES with STATUS_NOT_SUPPORTED (exit: $exitCode)"
+            Write-Host "::error::🎯 FOUND IT! This individual package causes the crash!"
+            exit 1
+          } else {
+            Write-Host "::warning::⚠️ ${{ matrix.dll.name }} failed with unexpected exit code: $exitCode"
+            exit 1
+          }
+
+  summary:
+    runs-on: windows-11-arm
+    needs: test-suspect-dlls
+    if: always()
+    steps:
+      - name: Investigation Summary
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "SUSPECT DLL INDIVIDUAL TEST SUMMARY"
+          Write-Host "========================================="
+          Write-Host ""
+          Write-Host "This workflow tests the 4 DLLs that are:"
+          Write-Host "  ✅ Loaded by rmarkdown"
+          Write-Host "  ❌ NOT loaded by knitr"
+          Write-Host "  ❓ Not yet tested individually"
+          Write-Host ""
+          Write-Host "The 4 suspect DLLs:"
+          Write-Host "  1. cli - Console/terminal interactions"
+          Write-Host "  2. digest - Cryptographic hashing"
+          Write-Host "  3. fastmap - Fast hash maps"
+          Write-Host "  4. rlang - Low-level R internals"
+          Write-Host ""
+          Write-Host "Note: htmltools was already tested individually and passed."
+          Write-Host ""
+          Write-Host "Expected outcomes:"
+          Write-Host "  - If one of these crashes → That package is the root cause"
+          Write-Host "  - If all pass → The crash requires a combination of packages"
+          Write-Host ""
+          Write-Host "Review test results above to identify any individual crashers."
+          Write-Host ""
+          Write-Host "========================================="
