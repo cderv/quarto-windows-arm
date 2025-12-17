@@ -1,0 +1,119 @@
+name: "Phase 8: Namespace Loading Investigation"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'test-phase8-*.R'
+      - '.github/workflows/test-phase8-*.yml'
+
+jobs:
+  test-loadnamespace:
+    name: "Test loadNamespace() vs library()"
+    runs-on: windows-11-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install R packages
+        shell: pwsh
+        run: |
+          & "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" -e @"
+          packages <- c('evaluate', 'htmltools', 'knitr', 'jsonlite', 'yaml',
+                       'tinytex', 'jquerylib', 'fontawesome', 'cachem',
+                       'lifecycle', 'memoise', 'mime', 'sass', 'bslib')
+          install.packages(packages, repos = 'https://cloud.r-project.org')
+          "@
+
+      - name: Run loadNamespace() test
+        shell: pwsh
+        run: |
+          Write-Host "`n=== Testing loadNamespace() Approach ===" -ForegroundColor Cyan
+          $exitCode = (Start-Process -FilePath "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" `
+            -ArgumentList "test-phase8-loadnamespace.R" `
+            -Wait -PassThru -NoNewWindow).ExitCode
+          Write-Host "Exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+          exit $exitCode
+
+  test-s3methods:
+    name: "Test S3 Method Registration"
+    runs-on: windows-11-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install R packages
+        shell: pwsh
+        run: |
+          & "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" -e @"
+          install.packages(c('evaluate', 'knitr'), repos = 'https://cloud.r-project.org')
+          "@
+
+      - name: Run S3 method registration test
+        shell: pwsh
+        run: |
+          Write-Host "`n=== Testing S3 Method Registration ===" -ForegroundColor Cyan
+          $exitCode = (Start-Process -FilePath "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" `
+            -ArgumentList "test-phase8-s3methods.R" `
+            -Wait -PassThru -NoNewWindow).ExitCode
+          Write-Host "Exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+          exit $exitCode
+
+  test-import-order:
+    name: "Test Import Load Order"
+    runs-on: windows-11-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install R packages
+        shell: pwsh
+        run: |
+          & "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" -e @"
+          packages <- c('htmltools', 'knitr', 'xfun', 'evaluate', 'fontawesome',
+                       'jquerylib', 'jsonlite', 'tinytex', 'yaml', 'bslib')
+          install.packages(packages, repos = 'https://cloud.r-project.org')
+          "@
+
+      - name: Run import order test
+        shell: pwsh
+        run: |
+          Write-Host "`n=== Testing Import Load Order ===" -ForegroundColor Cyan
+          $exitCode = (Start-Process -FilePath "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" `
+            -ArgumentList "test-phase8-import-order.R" `
+            -Wait -PassThru -NoNewWindow).ExitCode
+          Write-Host "Exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+          exit $exitCode
+
+  test-direct-rmarkdown:
+    name: "Direct rmarkdown loadNamespace()"
+    runs-on: windows-11-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rmarkdown
+        shell: pwsh
+        run: |
+          & "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" -e @"
+          install.packages('rmarkdown', repos = 'https://cloud.r-project.org')
+          "@
+
+      - name: Test direct loadNamespace("rmarkdown")
+        shell: pwsh
+        run: |
+          Write-Host "`n=== Testing Direct loadNamespace('rmarkdown') ===" -ForegroundColor Cyan
+          $content = @"
+          cat('Loading rmarkdown namespace...\n')
+          loadNamespace('rmarkdown')
+          cat('✓ rmarkdown namespace loaded\n')
+          cat('Loaded namespaces:\n')
+          print(loadedNamespaces())
+          "@
+          $content | Out-File -FilePath test-direct.R -Encoding utf8
+
+          $exitCode = (Start-Process -FilePath "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" `
+            -ArgumentList "test-direct.R" `
+            -Wait -PassThru -NoNewWindow).ExitCode
+          Write-Host "Exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+          exit $exitCode
