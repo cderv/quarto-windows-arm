@@ -1,0 +1,102 @@
+name: Investigate rmarkdown Dependencies
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-dependencies:
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        dependency:
+          - { name: "jsonlite", suspect: "low", reason: "Pure R/C JSON parsing" }
+          - { name: "tinytex", suspect: "high", reason: "Pandoc integration, external tool management" }
+          - { name: "htmltools", suspect: "high", reason: "Native code for HTML generation" }
+          - { name: "bslib", suspect: "high", reason: "Native code, depends on htmltools" }
+          - { name: "xfun", suspect: "medium", reason: "Utility functions, some system integration" }
+          - { name: "yaml", suspect: "low", reason: "YAML parsing only" }
+          - { name: "jquerylib", suspect: "low", reason: "JavaScript assets, no native code" }
+          - { name: "evaluate", suspect: "medium", reason: "Code evaluation, output capture" }
+
+    name: "Dependency: ${{ matrix.dependency.name }} (suspect: ${{ matrix.dependency.suspect }})"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install ${{ matrix.dependency.name }} package
+        run: |
+          Write-Host "Installing ${{ matrix.dependency.name }}..."
+          Rscript -e "install.packages('${{ matrix.dependency.name }}', repos='https://cloud.r-project.org')"
+
+      - name: "Test ${{ matrix.dependency.name }}"
+        id: test-dependency
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Testing: ${{ matrix.dependency.name }}"
+          Write-Host "Suspect level: ${{ matrix.dependency.suspect }}"
+          Write-Host "Reason: ${{ matrix.dependency.reason }}"
+          Write-Host "========================================="
+          Write-Host ""
+
+          $output = Rscript test-dep-${{ matrix.dependency.name }}.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host "Output:"
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ ${{ matrix.dependency.name }} works (suspect: ${{ matrix.dependency.suspect }})"
+            exit 0
+          } elseif ($exitCode -eq -1073741569) {
+            Write-Host "::error::❌ ${{ matrix.dependency.name }} CRASHES with STATUS_NOT_SUPPORTED (exit: $exitCode)"
+            exit 1
+          } else {
+            Write-Host "::warning::⚠️ ${{ matrix.dependency.name }} failed with unexpected exit code: $exitCode"
+            exit 1
+          }
+
+  summary:
+    runs-on: windows-11-arm
+    needs: test-dependencies
+    if: always()
+    steps:
+      - name: Investigation Summary
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "DEPENDENCY INVESTIGATION SUMMARY"
+          Write-Host "========================================="
+          Write-Host ""
+          Write-Host "This workflow tests rmarkdown's major dependencies individually"
+          Write-Host "to identify which package(s) cause the STATUS_NOT_SUPPORTED crash"
+          Write-Host "on R x64 Windows ARM."
+          Write-Host ""
+          Write-Host "High suspects: tinytex, htmltools, bslib"
+          Write-Host "Medium suspects: xfun, evaluate"
+          Write-Host "Low suspects: jsonlite, yaml, jquerylib"
+          Write-Host ""
+          Write-Host "Review the test results above to identify:"
+          Write-Host "  1. Which packages crash (exit -1073741569)"
+          Write-Host "  2. Which packages work fine (exit 0)"
+          Write-Host "  3. Any unexpected failures (other exit codes)"
+          Write-Host ""
+          Write-Host "Next steps:"
+          Write-Host "  - If multiple packages crash, test combinations with test-dep-combinations.R"
+          Write-Host "  - If one package crashes, investigate its DLLs with the DLL workflow"
+          Write-Host "  - Document findings for rmarkdown maintainers"
+          Write-Host ""
+          Write-Host "========================================="

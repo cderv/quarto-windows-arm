@@ -1,0 +1,124 @@
+name: Investigate rmarkdown DLLs
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-dlls:
+    runs-on: windows-11-arm
+    name: "DLL Investigation"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify R x64 installation
+        run: |
+          Rscript -e "cat('R Platform:', R.version[['platform']], '\n')"
+          Rscript -e "cat('R Version:', R.version[['version.string']], '\n')"
+
+      - name: Install R packages
+        run: |
+          Write-Host "Installing knitr and rmarkdown..."
+          Rscript -e "install.packages(c('knitr', 'rmarkdown'), repos='https://cloud.r-project.org')"
+
+      - name: "Test 1: Baseline DLLs (no packages)"
+        id: test-baseline
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 1: Baseline DLLs (no packages)"
+          Write-Host "========================================="
+          Write-Host ""
+
+          $output = Rscript test-dlls-baseline.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ Baseline DLL listing succeeded"
+          } else {
+            Write-Host "::error::❌ Baseline test failed (unexpected)"
+          }
+
+      - name: "Test 2: DLLs with knitr (working case)"
+        id: test-knitr
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 2: DLLs with knitr (working case)"
+          Write-Host "========================================="
+          Write-Host ""
+
+          $output = Rscript test-dlls-knitr.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::notice::✅ knitr DLL listing succeeded"
+          } else {
+            Write-Host "::error::❌ knitr test failed (unexpected)"
+          }
+
+      - name: "Test 3: DLLs with rmarkdown (failing case)"
+        id: test-rmarkdown
+        continue-on-error: true
+        run: |
+          Write-Host "========================================="
+          Write-Host "Test 3: DLLs with rmarkdown (failing case)"
+          Write-Host "========================================="
+          Write-Host ""
+
+          $output = Rscript test-dlls-rmarkdown.R 2>&1
+          $exitCode = $LASTEXITCODE
+
+          Write-Host $output
+          Write-Host ""
+          Write-Host "Exit code: $exitCode"
+          Write-Host ""
+
+          if ($exitCode -eq 0) {
+            Write-Host "::warning::⚠️ rmarkdown test succeeded (unexpected - usually crashes)"
+          } elseif ($exitCode -eq -1073741569) {
+            Write-Host "::notice::❌ rmarkdown crashed as expected (exit: $exitCode)"
+            Write-Host "Note: Output above shows DLLs loaded before crash"
+          } else {
+            Write-Host "::warning::⚠️ rmarkdown failed with unexpected exit code: $exitCode"
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          Write-Host ""
+          Write-Host "========================================="
+          Write-Host "DLL INVESTIGATION SUMMARY"
+          Write-Host "========================================="
+          Write-Host ""
+          Write-Host "This workflow compares DLLs loaded by:"
+          Write-Host "  1. R baseline (no packages)"
+          Write-Host "  2. R + knitr (works on Windows ARM)"
+          Write-Host "  3. R + rmarkdown (crashes on Windows ARM)"
+          Write-Host ""
+          Write-Host "Analysis steps:"
+          Write-Host "  1. Compare Test 2 vs Test 1 to identify knitr-specific DLLs"
+          Write-Host "  2. Compare Test 3 vs Test 1 to identify rmarkdown-specific DLLs"
+          Write-Host "  3. Compare Test 3 vs Test 2 to identify what's unique to rmarkdown"
+          Write-Host ""
+          Write-Host "Key findings to document:"
+          Write-Host "  - Which DLLs are unique to rmarkdown (not in baseline or knitr)"
+          Write-Host "  - Are these native x64 libraries?"
+          Write-Host "  - Do they have known WOW64 incompatibilities?"
+          Write-Host ""
+          Write-Host "This evidence helps rmarkdown maintainers identify the problematic"
+          Write-Host "native library that fails during cleanup on R x64 Windows ARM."
+          Write-Host ""
+          Write-Host "========================================="
