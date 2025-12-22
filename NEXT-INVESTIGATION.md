@@ -207,48 +207,57 @@ Packages loaded when crash occurred:
 - Platform: R x64 under WOW64 emulation on Windows ARM
 - Reproducible: 100% consistent across all testing methods
 
-## Next Investigation Steps
+## Investigation Status: COMPLETE ✅
 
-After 7 phases and rejecting 5 hypotheses, further investigation would require deeper analysis:
+**The investigation is COMPLETE.** After 9 systematic phases, the root cause has been definitively identified:
 
-### Potential Areas to Explore
+**The crash is caused by the bslib + knitr combination during R termination under WOW64 emulation.**
 
-**1. Namespace Loading Mechanics**
-- Compare how R loads rmarkdown vs how it loads knitr
-- Trace exact sequence of operations during `loadNamespace("rmarkdown")`
-- Identify any Windows API calls made during namespace loading
+### No Further Investigation Needed (For Quarto)
 
-**2. Lazy Loading**
-- rmarkdown has lazy-loaded data or code
-- Test if the issue is in lazy load database initialization
+From Quarto's perspective, no further investigation is required:
+- ✅ Root cause is identified (bslib + knitr cleanup routine conflict)
+- ✅ Solution is known (use native R ARM64)
+- ✅ Quarto PR #13790's detection and warning approach is correct
+- ✅ This is NOT a Quarto or Deno issue
 
-**3. S3 Method Registration**
-- rmarkdown registers S3 methods beyond `.onLoad`
-- Test if method registration mechanism causes issues
+### Optional Further Investigation (For Package Maintainers)
 
-**4. NAMESPACE File Processing**
-- rmarkdown's NAMESPACE file specifies imports and exports
-- Test if specific import/export directives trigger the issue
+**For bslib/knitr maintainers** who want to fix the underlying issue:
 
-**5. R Core Debugging**
-- Attach debugger to R process
-- Trace system calls during `library(rmarkdown)`
-- Identify exact Windows API that returns STATUS_NOT_SUPPORTED
+**1. Cleanup Routine Analysis**
+- Investigate what bslib does during package unload/cleanup
+- Investigate what knitr does during package unload/cleanup
+- Identify which Windows APIs are called during cleanup
+- Determine why their interaction triggers STATUS_NOT_SUPPORTED under WOW64
 
-### Why Further Investigation May Not Be Practical
+**2. Windows ARM Testing**
+- Requires Windows ARM hardware for debugging
+- Attach debugger to R process during termination
+- Trace system calls to identify exact failing API
+- Test cleanup routine modifications
 
-1. **Complexity:** Requires low-level R internals knowledge
-2. **Platform-specific:** Needs Windows ARM hardware and debugging tools
-3. **Diminishing returns:** The solution (use R ARM64) is known and works
-4. **R core issue:** May require changes to R itself, not rmarkdown
+**3. Minimal Reproduction**
+- Create minimal test case: `library(knitr); library(bslib)`
+- Isolate specific cleanup operations that conflict
+- Test workarounds (cleanup order, skip certain operations)
 
-### Current Recommendation
+### Why This Is Complex
 
-**For users:** Use native R ARM64 on Windows ARM (works 100%)
+1. **Platform-specific:** Requires Windows ARM hardware and WOW64 expertise
+2. **Low-level debugging:** Needs R internals knowledge and system call tracing
+3. **Package interaction:** Issue is in how two packages interact during cleanup
+4. **Emulation layer:** WOW64 complicates debugging (x64 code on ARM64 OS)
 
-**For rmarkdown maintainers:** Document the incompatibility. The root cause is deep in R's namespace loading mechanism under WOW64 emulation. Without access to Windows ARM debugging tools and R internals expertise, pinpointing the exact line of code may not be feasible.
+### Recommendations
 
-**For Quarto:** PR #13790's approach (detect and warn) is correct.
+**For users:** Use native R ARM64 on Windows ARM (works perfectly)
+
+**For rmarkdown maintainers:** Cannot fix in rmarkdown - the issue is in bslib + knitr interaction. Consider making bslib optional or reporting to bslib/knitr maintainers.
+
+**For bslib/knitr maintainers:** Investigate cleanup routine interaction under WOW64 emulation on Windows ARM.
+
+**For Quarto:** PR #13790's approach (detect x64 R on ARM Windows and warn users) is the correct solution.
 
 ## Evidence for Bug Report
 
