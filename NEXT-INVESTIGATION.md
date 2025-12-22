@@ -207,40 +207,83 @@ Packages loaded when crash occurred:
 - Platform: R x64 under WOW64 emulation on Windows ARM
 - Reproducible: 100% consistent across all testing methods
 
-## Investigation Status: COMPLETE ✅
+## Investigation Status: Root Cause Identified ✅
 
-**The investigation is COMPLETE.** After 9 systematic phases, the root cause has been definitively identified:
+**Phase 1-9 investigation is COMPLETE.** The root cause has been definitively identified:
 
 **The crash is caused by the bslib + knitr combination during R termination under WOW64 emulation.**
 
-### No Further Investigation Needed (For Quarto)
+### Key Findings for Package Maintainers
 
-From Quarto's perspective, no further investigation is required:
-- ✅ Root cause is identified (bslib + knitr cleanup routine conflict)
-- ✅ Solution is known (use native R ARM64)
-- ✅ Quarto PR #13790's detection and warning approach is correct
-- ✅ This is NOT a Quarto or Deno issue
+- ✅ **rmarkdown is innocent** - it's simply the package that imports both bslib AND knitr
+- ✅ **Simple reproduction:** `library(knitr); library(bslib)` crashes (no rmarkdown code needed)
+- ✅ **Both packages work individually** - only their combination fails
+- ✅ **Not namespace count** - 24 other packages load together successfully
+- ✅ **Affects all runtimes** - PowerShell, Deno, Node.js, Python all fail the same way
 
-### Optional Further Investigation (For Package Maintainers)
+### Next Steps: Package-Level Investigation
 
-**For bslib/knitr maintainers** who want to fix the underlying issue:
+**Phase 10: Isolate Specific Cleanup Operations** (Recommended Next Phase)
 
-**1. Cleanup Routine Analysis**
-- Investigate what bslib does during package unload/cleanup
-- Investigate what knitr does during package unload/cleanup
-- Identify which Windows APIs are called during cleanup
-- Determine why their interaction triggers STATUS_NOT_SUPPORTED under WOW64
+Now that we know bslib + knitr is the problem, the next investigation phase should isolate **which specific cleanup operations** conflict:
 
-**2. Windows ARM Testing**
-- Requires Windows ARM hardware for debugging
-- Attach debugger to R process during termination
-- Trace system calls to identify exact failing API
-- Test cleanup routine modifications
+**Goal:** Identify which specific operations in bslib and knitr cleanup routines conflict.
 
-**3. Minimal Reproduction**
-- Create minimal test case: `library(knitr); library(bslib)`
-- Isolate specific cleanup operations that conflict
-- Test workarounds (cleanup order, skip certain operations)
+**Approach 1: Source Code Analysis**
+1. **Review knitr cleanup code:**
+   - Check for `.onUnload` or `.Last.lib` functions
+   - Review C/C++ code in xfun (knitr dependency with native code)
+   - Look for finalizers registered via `reg.finalizer()`
+   - Check for cleanup of vignette engines, output handlers, hooks
+
+2. **Review bslib cleanup code:**
+   - Check for `.onUnload` or `.Last.lib` functions
+   - Review C/C++ code in sass, htmltools (bslib deps with native code)
+   - Look for finalizers registered via `reg.finalizer()`
+   - Check for global theme state cleanup, cached precompiled CSS
+
+3. **Compare cleanup mechanisms:**
+   - Do both use finalizers?
+   - Do both modify global state (options, environment variables)?
+   - Do both write/delete temporary files?
+   - Do both register/unregister hooks?
+
+**Approach 2: Incremental Testing** (Requires Windows ARM access)
+1. **Test minimal bslib:**
+   - Load only bslib core (no themes, no caching) + knitr
+   - If passes: issue is in bslib's theme/caching cleanup
+
+2. **Test minimal knitr:**
+   - Load only knitr core (no hooks, no engines) + bslib
+   - If passes: issue is in knitr's hook/engine cleanup
+
+3. **Test load order:**
+   - Load knitr first, then bslib (current test)
+   - Load bslib first, then knitr (alternative order)
+   - Does order matter?
+
+4. **Test with explicit cleanup suppression:**
+   - Prevent `.onUnload` from running via `unloadNamespace()`
+   - Test if crash still occurs
+   - Isolates whether issue is in explicit cleanup or implicit R cleanup
+
+**Approach 3: System Call Tracing** (Requires Windows ARM + debugging tools)
+1. **Use Process Monitor on Windows ARM:**
+   - Capture all system calls during R termination
+   - Filter to STATUS_NOT_SUPPORTED failures
+   - Identify exact Windows API that fails
+
+2. **Compare traces:**
+   - Trace: `library(knitr)` alone (works)
+   - Trace: `library(bslib)` alone (works)
+   - Trace: `library(knitr); library(bslib)` (crashes)
+   - Identify APIs called only in the crash case
+
+3. **Identify conflicting operation:**
+   - File operations? (CreateFile, DeleteFile, etc.)
+   - Registry operations? (RegOpenKey, RegSetValue, etc.)
+   - DLL operations? (LoadLibrary, FreeLibrary, etc.)
+   - Thread/process operations?
 
 ### Why This Is Complex
 
@@ -249,15 +292,41 @@ From Quarto's perspective, no further investigation is required:
 3. **Package interaction:** Issue is in how two packages interact during cleanup
 4. **Emulation layer:** WOW64 complicates debugging (x64 code on ARM64 OS)
 
-### Recommendations
+### Potential Fixes (Once Root Cause is Isolated)
+
+**Option 1: Fix in bslib or knitr**
+- If specific cleanup operation identified, modify it to work under WOW64
+- May require Windows ARM-specific code paths
+- Could add WOW64 detection and skip problematic operations
+
+**Option 2: Coordinate cleanup order**
+- If order matters, ensure specific cleanup sequence
+- Use `.onUnload` priority or package load order
+
+**Option 3: Make bslib optional in rmarkdown**
+- Breaking change - bslib provides Bootstrap theming
+- Would require major rmarkdown refactor
+- Not recommended unless no other solution
+
+**Option 4: Document incompatibility**
+- If unfixable WOW64 limitation, document clearly
+- Recommend R ARM64 for Windows ARM users
+- Current approach (Quarto PR #13790 detects and warns)
+
+### Resources Needed
+
+1. **Windows ARM hardware** - Critical for testing and debugging
+2. **Process Monitor** - Microsoft Sysinternals tool for system call tracing
+3. **Debugger** - Visual Studio or WinDbg for R process debugging
+4. **Collaboration** - knitr maintainer (Yihui) and bslib maintainer coordination
+
+### Current Recommendations
 
 **For users:** Use native R ARM64 on Windows ARM (works perfectly)
 
-**For rmarkdown maintainers:** Cannot fix in rmarkdown - the issue is in bslib + knitr interaction. Consider making bslib optional or reporting to bslib/knitr maintainers.
+**For Quarto:** PR #13790's detection and warning approach is correct
 
-**For bslib/knitr maintainers:** Investigate cleanup routine interaction under WOW64 emulation on Windows ARM.
-
-**For Quarto:** PR #13790's approach (detect x64 R on ARM Windows and warn users) is the correct solution.
+**For rmarkdown/knitr/bslib maintainers:** Proceed with Phase 10 investigation to isolate the specific conflicting cleanup operations. This will determine if a package-level fix is feasible.
 
 ## Evidence for Bug Report
 
