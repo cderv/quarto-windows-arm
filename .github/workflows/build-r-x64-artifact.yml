@@ -17,7 +17,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download 20435793732 --repo quarto-dev/quarto-cli --name "Windows Zip"
+          gh run download 20438280055 --repo quarto-dev/quarto-cli --name "Windows Zip"
 
       - name: Extract and setup Quarto from artifact
         run: |
