@@ -14,7 +14,7 @@ Additionally, test with a special Quarto build from [PR #13790](https://github.c
 
 ## Test Scenarios
 
-Thirteen GitHub Actions workflows organized by purpose test different configurations.
+Twenty-one GitHub Actions workflows organized by purpose test different configurations.
 
 ### Build Workflows (5)
 
@@ -49,7 +49,7 @@ Tests Quarto rendering with native ARM64 R installation.
 
 Tests Quarto artifact from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) rendering with emulated R x64.
 
-- Downloads Quarto build artifact from [GitHub Actions run #20277232831](https://github.com/quarto-dev/quarto-cli/actions/runs/20277232831)
+- Downloads Quarto build artifact from [GitHub Actions run #20438280055](https://github.com/quarto-dev/quarto-cli/actions/runs/20438280055)
 - Uses pre-installed R x64 from the runner
 - Renders R-dependent content
 - **Status**: ❌ Expected to fail with improved error messages
@@ -58,15 +58,15 @@ Tests Quarto artifact from [PR #13790](https://github.com/quarto-dev/quarto-cli/
 
 Tests Quarto artifact build from [PR #13790](https://github.com/quarto-dev/quarto-cli/pull/13790) with native ARM64 R.
 
-- Downloads Quarto build artifact from [GitHub Actions run #20277232831](https://github.com/quarto-dev/quarto-cli/actions/runs/20277232831)
+- Downloads Quarto build artifact from [GitHub Actions run #20438280055](https://github.com/quarto-dev/quarto-cli/actions/runs/20438280055)
 - Installs R 4.5.0 aarch64 explicitly
 - Installs RTools45 for ARM64
 - Uses `QUARTO_R` environment variable to point to ARM R
 - **Status**: ✅ Expected to work
 
-### Test Workflows (8)
+### Test Workflows (16)
 
-These workflows perform focused investigation of specific technical questions about R x64 compatibility.
+These workflows perform focused investigation of specific technical questions about R x64 compatibility, including the systematic 9-phase investigation that identified the root cause.
 
 #### 6. Direct R Execution ([test-subprocess-direct-rscript.yml](.github/workflows/test-subprocess-direct-rscript.yml))
 
@@ -135,6 +135,19 @@ Tests Windows ARM detection from x64 processes.
 - **Purpose**: Validate PR #13790's ARM detection approach
 - **Result**: Deno FFI works successfully, R FFI has limitations
 
+#### 13-21. Investigation Workflows
+
+Additional workflows used during the systematic 9-phase investigation to identify the root cause:
+
+- **Phase 1**: `investigate-rmarkdown-deps.yml` - Test all 24 dependencies individually
+- **Phase 2**: `investigate-rmarkdown-dlls.yml` - Analyze DLLs loaded by baseline R, knitr, and rmarkdown
+- **Phase 3**: `investigate-dll-combinations.yml`, `investigate-suspect-dlls.yml` - Test DLL combinations
+- **Phase 5**: `test-bslib-hypothesis.yml` - Test bslib hypothesis (rejected)
+- **Phase 6**: `test-phase6-hypotheses.yml` - Test xfun, package combo, `.onLoad` hypotheses
+- **Phase 7**: `test-sethook-hypothesis.yml` - Test setHook/`.onLoad` hypothesis (rejected)
+- **Phase 8**: `test-phase8-namespace-loading.yml` - Test namespace loading mechanics
+- **Phase 9**: `test-phase9-root-cause.yml` - **ROOT CAUSE IDENTIFIED** - bslib + knitr combination testing
+
 ## Implementation Details
 
 ### Quarto Profiles
@@ -201,8 +214,10 @@ After 9 phases of systematic investigation, the root cause has been **definitive
 **Investigation Documentation:**
 - **[PHASE9-BSLIB-KNITR-INCOMPATIBILITY.md](PHASE9-BSLIB-KNITR-INCOMPATIBILITY.md)** - Phase 9 breakthrough analysis (START HERE)
 - **[INVESTIGATION-RESULTS.md](INVESTIGATION-RESULTS.md)** - Complete 9-phase investigation findings
-- **[NEXT-INVESTIGATION.md](NEXT-INVESTIGATION.md)** - Investigation roadmap and all rejected hypotheses
+- **[NEXT-INVESTIGATION.md](NEXT-INVESTIGATION.md)** - Investigation roadmap, all rejected hypotheses, and Phase 10 plan for package maintainers
 - **[FINDINGS.md](FINDINGS.md)** - Original technical analysis
+
+**Note:** Phase 10 investigation plan is documented in NEXT-INVESTIGATION.md for rmarkdown/knitr/bslib maintainers who wish to investigate potential package-level fixes. This is optional further work - the root cause has been definitively identified and documented.
 
 ## Workflow Status
 
