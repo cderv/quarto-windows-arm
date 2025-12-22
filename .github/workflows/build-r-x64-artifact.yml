@@ -40,11 +40,9 @@ jobs:
 
       - name: Verify Quarto setup
         continue-on-error: true
-        run: quarto check --log-level=debug
+        run: quarto check
 
       - name: Render website with r-x64-artifact profile
-        env:
-          QUARTO_LOG_LEVEL: debug
         run: quarto render --profile r-x64-artifact
 
       - name: Upload site artifact
