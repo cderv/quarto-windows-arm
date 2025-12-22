@@ -11,7 +11,7 @@ This is a comprehensive testing suite for Quarto on Windows 11 ARM that:
 - Investigates subprocess spawning behavior across different runtimes
 - Supports Quarto PR #13790 (improved ARM detection and error messages)
 
-**Key Finding:** R x64 (emulated) with rmarkdown package crashes on Windows ARM due to package cleanup incompatibility with WOW64 emulation. The solution is to use native R ARM64.
+**Key Finding:** R x64 (emulated) with rmarkdown package crashes on Windows ARM due to the **bslib + knitr combination** interacting during R termination under WOW64 emulation. After 9 phases of investigation, the root cause was identified: rmarkdown is the only package importing both bslib AND knitr, and their cleanup routines conflict under WOW64. The solution is to use native R ARM64.
 
 ## Workflow Organization
 
@@ -239,14 +239,15 @@ Each matrix job installs R packages independently (12 total jobs: 4 Deno version
 
 ## Key Technical Findings
 
-### Root Cause: rmarkdown Namespace Loading Issue (Exact cause unknown after 7 phases)
+### Root Cause: bslib + knitr Combination Incompatibility (Identified in Phase 9)
 - R x64 works when called directly from PowerShell for simple scripts ✅
 - R x64 crashes when loading rmarkdown package (exit code -1073741569 = STATUS_NOT_SUPPORTED) ❌
+- **Crash is caused by loading bslib + knitr together** - even simple `library(knitr); library(bslib)` crashes
 - Crash occurs during R termination, **after** script completes successfully
 - Issue occurs across ALL invocation methods (PowerShell, Deno, Node.js, Python)
 - This is NOT a subprocess spawning issue or Quarto/Deno bug
-- **Root cause:** Something in rmarkdown's namespace loading mechanism (NOT `.onLoad`, NOT dependencies, NOT package combinations) uses Windows APIs incompatible with WOW64 emulation
-- **7 phases completed, 5 hypotheses systematically rejected**
+- **Root cause:** The combination of bslib and knitr cleanup routines interact in a way that triggers STATUS_NOT_SUPPORTED under WOW64 emulation
+- **9 phases completed, 5 hypotheses systematically rejected, definitive root cause identified**
 
 ### Affected vs Unaffected Scenarios
 **Affected (fails):**
@@ -263,7 +264,7 @@ Each matrix job installs R packages independently (12 total jobs: 4 Deno version
 
 There is no workaround. Quarto PR #13790 correctly detects this unsupported configuration and provides helpful error messages directing users to R ARM64.
 
-## Investigation Summary (7 Phases Completed ✅)
+## Investigation Summary (9 Phases Completed ✅)
 
 **Goal:** Identify the exact component causing rmarkdown crash on R x64 Windows ARM
 
@@ -294,18 +295,34 @@ There is no workaround. Quarto PR #13790 correctly detects this unsupported conf
 - Complete `.onLoad` reproduction → PASS ✅
 - **Hypothesis REJECTED** ❌
 
-**Current Status:**
-- **5 hypotheses systematically rejected**
-- Root cause is in rmarkdown's namespace loading mechanism (beyond `.onLoad`)
-- Exact component unknown - requires R internals debugging
-- See `INVESTIGATION-RESULTS.md` and `NEXT-INVESTIGATION.md` for complete analysis
+**Phase 8 - Namespace Loading Mechanics:**
+- Tested `loadNamespace()` approach → Identified crash timing
+- Tested all rmarkdown imports using loadNamespace → ALL PASS ✅
+- Proved namespace loading mechanism itself works
+- Pointed toward package combination interaction
+
+**Phase 9 - bslib + knitr Combination (BREAKTHROUGH ✅):**
+- **Test 1 (bslib + knitr):** ❌ **CRASHED** - simple `library(knitr); library(bslib)` fails
+- **Test 2 (24 other packages):** ✅ **PASSED** - loading many packages works fine
+- **Definitive proof:** NOT namespace count, NOT rmarkdown's code
+- **Root cause identified:** bslib + knitr cleanup routines conflict under WOW64 emulation
+- rmarkdown is the ONLY package importing both bslib AND knitr (unique combination)
+
+**Final Status:**
+- **ROOT CAUSE DEFINITIVELY IDENTIFIED** ✅
+- The crash is caused by the bslib + knitr combination during R termination
+- rmarkdown is innocent - it's the only package that imports both
+- No workaround exists - must use R ARM64 on Windows ARM
+- See `PHASE9-BSLIB-KNITR-INCOMPATIBILITY.md` for complete breakthrough analysis
 
 ## Important Documentation
 
 - `README.md` - Overview, test scenarios, repository structure
 - `FINDINGS.md` - Original technical analysis of R x64/ARM incompatibility
-- `INVESTIGATION-RESULTS.md` - **Complete investigation findings (START HERE for investigation details)**
-- `NEXT-INVESTIGATION.md` - **7-phase investigation status, all rejected hypotheses, and current status**
+- `INVESTIGATION-RESULTS.md` - **Complete investigation findings (Phases 1-9)**
+- `NEXT-INVESTIGATION.md` - **Investigation roadmap, all 9 phases documented**
+- `PHASE8-NAMESPACE-LOADING.md` - Phase 8 namespace loading mechanics investigation
+- `PHASE9-BSLIB-KNITR-INCOMPATIBILITY.md` - **Phase 9 BREAKTHROUGH - bslib + knitr root cause** (START HERE)
 - `RMARKDOWN-SOURCE-ANALYSIS.md` - Phase 4 source code analysis
 - `ARM-DETECTION.md` - Windows ARM detection implementation details and test results
 

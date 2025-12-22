@@ -171,21 +171,38 @@ This shows which R architecture is being used:
 
 ## Key Findings
 
-### R x64 Emulation Works, But Not Through Deno
+### Root Cause: bslib + knitr Combination Incompatibility (Definitive)
 
-Testing reveals that **R x64 runs successfully on Windows ARM when called directly**, but **fails when called through Deno** (Quarto's JavaScript runtime):
+After 9 phases of systematic investigation, the root cause has been **definitively identified**:
 
-- **Direct execution** (PowerShell → Rscript): ✅ Exit code 0, valid YAML output
-- **Through Quarto/Deno**: ❌ Exit code -1073741569 (STATUS_NOT_SUPPORTED)
+**The crash is caused by the bslib + knitr combination during R termination under WOW64 emulation, NOT by Deno or Quarto.**
 
-This means:
-1. R x64 emulation itself works on Windows ARM
-2. The issue is specific to **Deno's subprocess spawning** on Windows ARM
-3. Quarto can detect and report this error (PR #13790), but the root cause is in Deno
+**Critical Discovery (Phase 9):**
+- Simple `library(knitr); library(bslib)` crashes (exit code -1073741569)
+- Loading 24 other packages together works fine (not a namespace count issue)
+- Both packages work individually
+- **rmarkdown is the ONLY package** importing both bslib AND knitr
+- The issue occurs across ALL runtimes (PowerShell, Deno, Node.js, Python)
 
-**Evidence**: See [workflow run #20234173159](https://github.com/cderv/quarto-windows-arm/actions/runs/20234173159) where the same `knitr.R` script succeeds when called directly but fails during `quarto check`.
+**Why Only rmarkdown Crashes:**
+- **knitr** imports: evaluate, highr, xfun, yaml (no bslib)
+- **bslib** imports: htmltools, jquerylib, sass, cachem, lifecycle, memoise (no knitr)
+- **rmarkdown** imports: **BOTH bslib AND knitr** (unique combination)
 
-For detailed technical analysis, see [FINDINGS.md](FINDINGS.md).
+**What This Means:**
+1. ✅ R x64 emulation works on Windows ARM for simple scripts
+2. ❌ The bslib + knitr combination triggers cleanup routine conflict under WOW64
+3. ✅ rmarkdown is innocent - it's the victim of this package interaction
+4. ✅ This is NOT a Deno issue, NOT a Quarto issue, NOT a subprocess spawning issue
+5. ✅ Quarto PR #13790's detection and warning approach is correct
+
+**Solution:** Use native R ARM64 on Windows ARM.
+
+**Investigation Documentation:**
+- **[PHASE9-BSLIB-KNITR-INCOMPATIBILITY.md](PHASE9-BSLIB-KNITR-INCOMPATIBILITY.md)** - Phase 9 breakthrough analysis (START HERE)
+- **[INVESTIGATION-RESULTS.md](INVESTIGATION-RESULTS.md)** - Complete 9-phase investigation findings
+- **[NEXT-INVESTIGATION.md](NEXT-INVESTIGATION.md)** - Investigation roadmap and all rejected hypotheses
+- **[FINDINGS.md](FINDINGS.md)** - Original technical analysis
 
 ## Workflow Status
 
